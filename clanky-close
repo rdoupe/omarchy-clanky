@@ -1,8 +1,12 @@
 #!/bin/bash
 # Clanky-aware window close. Bind this to your close key (Super+W):
 # if Clanky's bubble or menu is up it closes that, otherwise it closes the
-# active window like the stock bind. Layer surfaces are invisible to
-# killactive, so the shortcut can't reach Clanky without this shim.
+# active window like the stock bind. Layer surfaces are invisible to the
+# close dispatcher, so the shortcut can't reach Clanky without this shim.
+#
+# Hyprland 0.56 evaluates `hyprctl dispatch <arg>` as Lua, so the old bare
+# string form (`hyprctl dispatch killactive`) now errors out; the window
+# close is issued through the Lua dispatcher instead.
 if [ "$(omarchy-shell clanky dismiss 2>/dev/null)" != "dismissed" ]; then
-  hyprctl dispatch killactive
+  hyprctl dispatch 'hl.dsp.window.close()'
 fi
