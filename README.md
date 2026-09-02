@@ -48,12 +48,15 @@ The shell hot-reloads; if Clanky doesn't appear, run
 
 ## Theme-aware, head to toe
 
-Clanky dresses in the active Omarchy theme — and not just the accent color.
-He reads the full palette from the theme's `colors.toml` (blue head, cyan
-body, magenta cheeks, orange antenna tip, red/yellow/green chest lights,
-brown feet, foreground/background eyes) and re-dresses instantly on
-`omarchy theme set`, no restart. Sparse themes fall back to the shell's role
-colors. While he's thinking, the chest lights chase and the antenna pulses.
+Clanky dresses in the active Omarchy theme. His chassis wears the colors
+that dominate the desktop — accent-colored head, surface-background body
+with an accent border, muted feet — so he looks shipped with the theme,
+while the side palette shows up as small pops: magenta cheeks,
+red/yellow/green chest lights, and an orange paperclip antenna (in
+memoriam). He reads the full palette from the theme's `colors.toml` and
+re-dresses instantly on `omarchy theme set`, no restart; sparse themes fall
+back to the shell's role colors. While he's thinking, the chest lights
+chase and the paperclip pulses.
 
 ## Moving him
 

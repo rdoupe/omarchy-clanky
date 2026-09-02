@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -36,18 +37,23 @@ Item {
     return (typeof v === "string" && v.length > 0) ? v : fallback
   }
 
-  readonly property color cHead: tc("blue", Color.accent)
-  readonly property color cBody: tc("cyan", Color.popups.border)
+  // Chassis wears the colors that dominate the theme on screen — the accent
+  // and the surface backgrounds — so Clanky looks like he was shipped with
+  // the theme, not painted from its side palette. The hues stay as small
+  // pops: cheeks, chest lights, antenna tip.
+  readonly property color cHead: Color.accent
+  readonly property color cBody: tc("lighter_background", Util.alpha(Color.foreground, 0.15))
+  readonly property color cBodyBorder: Util.alpha(Color.accent, 0.6)
   readonly property color cOutline: tc("darker_background", Util.alpha(Color.background, 0.8))
   readonly property color cEye: tc("bright_foreground", Color.foreground)
   readonly property color cPupil: tc("dark_background", Color.background)
-  readonly property color cCheek: tc("magenta", Color.accent)
+  readonly property color cCheek: tc("bright_magenta", tc("magenta", Color.accent))
   readonly property color cStem: tc("muted", Color.muted)
   readonly property color cTip: tc("orange", tc("yellow", Color.accent))
   readonly property color cLightRed: tc("red", Color.urgent)
   readonly property color cLightYellow: tc("yellow", Color.accent)
   readonly property color cLightGreen: tc("green", Color.accent)
-  readonly property color cFeet: tc("brown", tc("dark_foreground", Color.muted))
+  readonly property color cFeet: tc("muted", tc("dark_foreground", Color.muted))
 
   function loadThemeColors(raw) {
     var out = {}
@@ -347,7 +353,7 @@ Item {
       Item {
         id: charArea
         width: Style.space(88)
-        height: Style.space(106)
+        height: Style.space(112)
         anchors.right: parent.right
         anchors.bottom: parent.bottom
 
@@ -379,23 +385,39 @@ Item {
           onTriggered: charArea.eyesClosed = false
         }
 
-        // Antenna
-        Rectangle {
-          id: antennaStem
-          width: Style.space(3)
-          height: Style.space(14)
+        // Antenna: a little paperclip, in memoriam. Outer left side, loop
+        // over the top, down the right, U-turn at the bottom, up the middle.
+        Shape {
+          id: antenna
+          readonly property real s: Style.space(1)
+          width: 10 * s
+          height: 20 * s
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.bottom: head.top
-          color: root.cStem
-        }
-        Rectangle {
-          id: antennaTip
-          width: Style.space(10)
-          height: width
-          radius: width / 2
-          anchors.horizontalCenter: parent.horizontalCenter
-          anchors.bottom: antennaStem.top
-          color: root.cTip
+          anchors.bottomMargin: -2 * antenna.s
+          preferredRendererType: Shape.CurveRenderer
+
+          ShapePath {
+            strokeWidth: 1.8 * antenna.s
+            strokeColor: root.cTip
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+
+            startX: 1 * antenna.s; startY: 15 * antenna.s
+            PathLine { x: 1 * antenna.s; y: 4 * antenna.s }
+            PathArc {
+              x: 7 * antenna.s; y: 4 * antenna.s
+              radiusX: 3 * antenna.s; radiusY: 3 * antenna.s
+              direction: PathArc.Clockwise
+            }
+            PathLine { x: 7 * antenna.s; y: 17 * antenna.s }
+            PathArc {
+              x: 4 * antenna.s; y: 17 * antenna.s
+              radiusX: 1.5 * antenna.s; radiusY: 1.5 * antenna.s
+              direction: PathArc.Clockwise
+            }
+            PathLine { x: 4 * antenna.s; y: 7 * antenna.s }
+          }
 
           SequentialAnimation on opacity {
             running: root.thinking
@@ -468,7 +490,7 @@ Item {
           anchors.bottom: feet.top
           color: root.cBody
           border.width: 1
-          border.color: root.cOutline
+          border.color: root.cBodyBorder
 
           // Chest lights: red / yellow / green. Dim at rest, chasing while
           // Clanky is thinking.
