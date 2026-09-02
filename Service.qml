@@ -665,11 +665,13 @@ Item {
     id: panel
     visible: !root.quitHidden
 
-    // While the bubble or context menu is open, the surface expands to the
-    // whole screen so a click anywhere dismisses it (the way real popups
-    // behave); closed, it shrinks back to a small corner surface.
+    // The surface always covers the whole screen and Clanky is positioned
+    // inside it with content margins. The compositor never sees a resize or
+    // move — resizing the layer surface on open/close made Hyprland's layer
+    // animation fly him across the screen — and the input mask keeps
+    // everything except the robot click-through while closed.
     readonly property bool expanded: root.opened || root.menuOpen
-    anchors { left: panel.expanded; top: panel.expanded; bottom: true; right: true }
+    anchors { left: true; top: true; bottom: true; right: true }
 
     // Corner offsets. Initialized from shell.json; dragging the robot
     // reassigns them (breaking the binding) and persists on release.
@@ -677,20 +679,12 @@ Item {
     property int posBottom: Math.max(0, parseInt(root.setting("marginY", 16)) || 16)
 
     function clampPosition() {
-      // Clamp against the content box, not the window: while expanded the
-      // window is the whole screen and would clamp the margins to zero.
       var maxRight = screen ? Math.max(0, screen.width - windowContent.width) : 100000
       var maxBottom = screen ? Math.max(0, screen.height - windowContent.height) : 100000
       posRight = Math.min(Math.max(0, posRight), maxRight)
       posBottom = Math.min(Math.max(0, posBottom), maxBottom)
     }
 
-    margins {
-      right: panel.expanded ? 0 : panel.posRight
-      bottom: panel.expanded ? 0 : panel.posBottom
-    }
-    implicitWidth: Style.space(400)
-    implicitHeight: Style.space(500)
     color: "transparent"
     WlrLayershell.namespace: "omarchy-clanky"
     WlrLayershell.layer: WlrLayer.Top
@@ -720,8 +714,8 @@ Item {
       height: Style.space(500)
       anchors.right: parent.right
       anchors.bottom: parent.bottom
-      anchors.rightMargin: panel.expanded ? panel.posRight : 0
-      anchors.bottomMargin: panel.expanded ? panel.posBottom : 0
+      anchors.rightMargin: panel.posRight
+      anchors.bottomMargin: panel.posBottom
 
       // ---------------------------------------------------------- bubble
       Rectangle {
