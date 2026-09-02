@@ -492,8 +492,9 @@ Item {
           border.width: 1
           border.color: root.cBodyBorder
 
-          // Chest lights: red / yellow / green. Dim at rest, chasing while
-          // Clanky is thinking.
+          // Chest meter: three little EQ bars in the theme's hues (circles in
+          // a row read as macOS traffic lights). Uneven and dim at rest,
+          // bouncing while Clanky is thinking.
           property int chaseIndex: 0
           Timer {
             running: root.thinking
@@ -503,17 +504,23 @@ Item {
           }
           Row {
             anchors.centerIn: parent
-            spacing: Style.space(7)
+            height: Style.space(16)
+            spacing: Style.space(6)
             Repeater {
               model: [root.cLightRed, root.cLightYellow, root.cLightGreen]
               Rectangle {
-                width: Style.space(9)
-                height: width
+                readonly property real restHeight:
+                  [Style.space(8), Style.space(13), Style.space(6)][index]
+                width: Style.space(5)
+                height: root.thinking
+                  ? (body.chaseIndex === index ? Style.space(15) : Style.space(6))
+                  : restHeight
+                anchors.bottom: parent.bottom
                 radius: width / 2
-                color: Util.alpha(modelData,
-                  root.thinking ? (body.chaseIndex === index ? 1.0 : 0.3) : 0.6)
-                border.width: 1
-                border.color: root.cOutline
+                color: Util.alpha(modelData, root.thinking ? 0.95 : 0.7)
+                Behavior on height {
+                  NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                }
               }
             }
           }
