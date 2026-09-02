@@ -46,6 +46,26 @@ Then enable the service by adding it to the top-level `plugins` array in
 The shell hot-reloads; if Clanky doesn't appear, run
 `omarchy-shell shell rescanPlugins`.
 
+## Theme-aware, head to toe
+
+Clanky dresses in the active Omarchy theme — and not just the accent color.
+He reads the full palette from the theme's `colors.toml` (blue head, cyan
+body, magenta cheeks, orange antenna tip, red/yellow/green chest lights,
+brown feet, foreground/background eyes) and re-dresses instantly on
+`omarchy theme set`, no restart. Sparse themes fall back to the shell's role
+colors. While he's thinking, the chest lights chase and the antenna pulses.
+
+## Moving him
+
+Drag the robot anywhere on screen; a plain click still toggles the bubble.
+The position is clamped to the screen and persisted into `shell.json`
+through the shell's own config writer (the same path `omarchy bar move`
+uses), so it survives restarts. Scripts can do the same:
+
+```bash
+omarchy-shell clanky move 600 400   # margins from the bottom-right corner
+```
+
 ## Configuration
 
 All settings live on the `plugins[]` entry in `shell.json`:
@@ -53,8 +73,8 @@ All settings live on the `plugins[]` entry in `shell.json`:
 | Key       | Default                          | Meaning                                    |
 |-----------|----------------------------------|--------------------------------------------|
 | `command` | `["claude", "-p", …persona]`     | Agent command; the prompt is written to its stdin, stdout is the reply |
-| `marginX` | `16`                             | Distance from the right screen edge (px)   |
-| `marginY` | `16`                             | Distance from the bottom screen edge (px)  |
+| `marginX` | `16`                             | Distance from the right screen edge (px); updated automatically by dragging |
+| `marginY` | `16`                             | Distance from the bottom screen edge (px); updated automatically by dragging |
 
 Example — use OpenCode instead:
 
@@ -68,10 +88,17 @@ Example — use OpenCode instead:
 omarchy-shell clanky toggle          # open/close the bubble
 omarchy-shell clanky ask "why is my wifi sad"
 omarchy-shell clanky state           # closed | open | thinking
+omarchy-shell clanky move 16 16      # reposition (persisted)
 ```
 
-Bind it to a key in `~/.config/hypr/bindings.lua` if clicking a robot feels
-like too much mousing.
+Bind him to a key in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + SHIFT + C", "Clanky", "omarchy-shell clanky toggle")
+```
+
+He never grabs keyboard focus while closed and takes it only on-demand while
+the bubble is open, so Hyprland keybindings keep working either way.
 
 ## Prior art
 

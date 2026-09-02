@@ -24,6 +24,61 @@ Item {
 
   readonly property string pluginId: "io.github.rdoupe.clanky"
 
+  // Full theme palette, read straight from the current theme's colors.toml.
+  // The shell's Color singleton keeps only five roles (foreground,
+  // background, accent, urgent, muted); Clanky wants the hues too, so he
+  // wears red, yellow, green, cyan, blue, magenta, orange, and brown from
+  // whatever theme is active. Sparse themes fall back to the shell roles.
+  property var themeColors: ({})
+
+  function tc(name, fallback) {
+    var v = themeColors[name]
+    return (typeof v === "string" && v.length > 0) ? v : fallback
+  }
+
+  readonly property color cHead: tc("blue", Color.accent)
+  readonly property color cBody: tc("cyan", Color.popups.border)
+  readonly property color cOutline: tc("darker_background", Util.alpha(Color.background, 0.8))
+  readonly property color cEye: tc("bright_foreground", Color.foreground)
+  readonly property color cPupil: tc("dark_background", Color.background)
+  readonly property color cCheek: tc("magenta", Color.accent)
+  readonly property color cStem: tc("muted", Color.muted)
+  readonly property color cTip: tc("orange", tc("yellow", Color.accent))
+  readonly property color cLightRed: tc("red", Color.urgent)
+  readonly property color cLightYellow: tc("yellow", Color.accent)
+  readonly property color cLightGreen: tc("green", Color.accent)
+  readonly property color cFeet: tc("brown", tc("dark_foreground", Color.muted))
+
+  function loadThemeColors(raw) {
+    var out = {}
+    var lines = String(raw || "").split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      var match = lines[i].match(/^\s*([A-Za-z0-9_-]+)\s*=\s*["']?(#[0-9A-Fa-f]{6,8})/)
+      if (match) out[match[1]] = match[2]
+    }
+    themeColors = out
+  }
+
+  FileView {
+    id: colorsFile
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.loadThemeColors(text())
+    onFileChanged: reload()
+    onLoadFailed: root.loadThemeColors("")
+  }
+
+  // Theme switches swap the current/theme symlink under the same path and
+  // push new role colors into the Color singleton over IPC, which the file
+  // watch may not see — so re-read the palette whenever the roles move.
+  Connections {
+    target: Color
+    function onAccentChanged() { colorsFile.reload() }
+    function onBackgroundChanged() { colorsFile.reload() }
+    function onForegroundChanged() { colorsFile.reload() }
+  }
+
   property bool opened: false
   property bool thinking: false
   property string reply: ""
@@ -133,15 +188,56 @@ Item {
     function state(): string {
       return root.thinking ? "thinking" : (root.opened ? "open" : "closed")
     }
+    // Margins from the bottom-right corner; clamped to the screen and
+    // persisted to shell.json like a mouse drag.
+    function move(marginX: string, marginY: string): string {
+      panel.posRight = parseInt(marginX) || 0
+      panel.posBottom = parseInt(marginY) || 0
+      panel.clampPosition()
+      root.persistPosition()
+      return "ok"
+    }
+  }
+
+  // Persist the dragged position the omarchy-native way: write it onto our
+  // plugins[] entry in shell.json through the shell's own mutator (the same
+  // path `omarchy bar move` uses), merging with whatever other settings the
+  // entry already carries.
+  function persistPosition() {
+    if (!shell || typeof shell.updateEntryInline !== "function") return
+    var settings = {}
+    var cfg = shell.shellConfig
+    var list = cfg && Array.isArray(cfg.plugins) ? cfg.plugins : []
+    for (var i = 0; i < list.length; i++) {
+      var entry = list[i]
+      if (entry && String(entry.id || "") === pluginId)
+        for (var k in entry) if (k !== "id") settings[k] = entry[k]
+    }
+    settings.marginX = panel.posRight
+    settings.marginY = panel.posBottom
+    shell.updateEntryInline(pluginId, settings)
   }
 
   PanelWindow {
     id: panel
     visible: true
     anchors { bottom: true; right: true }
+
+    // Corner offsets. Initialized from shell.json; dragging the robot
+    // reassigns them (breaking the binding) and persists on release.
+    property int posRight: Math.max(0, parseInt(root.setting("marginX", 16)) || 16)
+    property int posBottom: Math.max(0, parseInt(root.setting("marginY", 16)) || 16)
+
+    function clampPosition() {
+      var maxRight = screen ? Math.max(0, screen.width - width) : 100000
+      var maxBottom = screen ? Math.max(0, screen.height - height) : 100000
+      posRight = Math.min(Math.max(0, posRight), maxRight)
+      posBottom = Math.min(Math.max(0, posBottom), maxBottom)
+    }
+
     margins {
-      right: Math.max(0, parseInt(root.setting("marginX", 16)) || 16)
-      bottom: Math.max(0, parseInt(root.setting("marginY", 16)) || 16)
+      right: panel.posRight
+      bottom: panel.posBottom
     }
     implicitWidth: Style.space(400)
     implicitHeight: Style.space(500)
@@ -290,7 +386,7 @@ Item {
           height: Style.space(14)
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.bottom: head.top
-          color: Color.popups.border
+          color: root.cStem
         }
         Rectangle {
           id: antennaTip
@@ -299,7 +395,7 @@ Item {
           radius: width / 2
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.bottom: antennaStem.top
-          color: Color.accent
+          color: root.cTip
 
           SequentialAnimation on opacity {
             running: root.thinking
@@ -319,9 +415,9 @@ Item {
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.bottom: body.top
           anchors.bottomMargin: Style.space(3)
-          color: Color.popups.border
+          color: root.cHead
           border.width: 1
-          border.color: Util.alpha(Color.popups.text, 0.25)
+          border.color: root.cOutline
 
           Row {
             anchors.centerIn: parent
@@ -333,7 +429,7 @@ Item {
                 height: charArea.eyesClosed ? Style.space(3) : Style.space(16)
                 anchors.verticalCenter: parent.verticalCenter
                 radius: width / 2
-                color: Color.background
+                color: root.cEye
                 Rectangle {
                   visible: !charArea.eyesClosed
                   width: Style.space(6)
@@ -341,9 +437,23 @@ Item {
                   radius: width / 2
                   anchors.centerIn: parent
                   anchors.verticalCenterOffset: root.opened ? -Style.space(2) : 0
-                  color: Color.popups.text
+                  color: root.cPupil
                 }
               }
+            }
+          }
+
+          // Cheeks
+          Repeater {
+            model: 2
+            Rectangle {
+              width: Style.space(7)
+              height: width
+              radius: width / 2
+              anchors.bottom: parent.bottom
+              anchors.bottomMargin: Style.space(6)
+              x: index === 0 ? Style.space(5) : head.width - width - Style.space(5)
+              color: Util.alpha(root.cCheek, 0.75)
             }
           }
         }
@@ -356,16 +466,34 @@ Item {
           radius: Style.space(14)
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.bottom: feet.top
-          color: Color.popups.border
+          color: root.cBody
           border.width: 1
-          border.color: Util.alpha(Color.popups.text, 0.25)
+          border.color: root.cOutline
 
-          Rectangle {
-            width: Style.space(12)
-            height: width
-            radius: width / 2
+          // Chest lights: red / yellow / green. Dim at rest, chasing while
+          // Clanky is thinking.
+          property int chaseIndex: 0
+          Timer {
+            running: root.thinking
+            repeat: true
+            interval: 260
+            onTriggered: body.chaseIndex = (body.chaseIndex + 1) % 3
+          }
+          Row {
             anchors.centerIn: parent
-            color: root.thinking ? Color.accent : Util.alpha(Color.accent, 0.55)
+            spacing: Style.space(7)
+            Repeater {
+              model: [root.cLightRed, root.cLightYellow, root.cLightGreen]
+              Rectangle {
+                width: Style.space(9)
+                height: width
+                radius: width / 2
+                color: Util.alpha(modelData,
+                  root.thinking ? (body.chaseIndex === index ? 1.0 : 0.3) : 0.6)
+                border.width: 1
+                border.color: root.cOutline
+              }
+            }
           }
         }
 
@@ -381,16 +509,49 @@ Item {
               width: Style.space(16)
               height: Style.space(8)
               radius: Style.space(4)
-              color: Util.alpha(Color.popups.text, 0.35)
+              color: root.cFeet
             }
           }
         }
 
         MouseArea {
+          id: charMouse
           anchors.fill: parent
-          cursorShape: Qt.PointingHandCursor
+          cursorShape: dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
           hoverEnabled: true
-          onClicked: root.toggle()
+
+          // Click toggles the bubble; press-and-move drags Clanky around the
+          // screen. The window moves with the pointer, so the pointer's
+          // window-local position stays near the press point and each event's
+          // offset from it is the margin delta to apply.
+          property real pressX: 0
+          property real pressY: 0
+          property bool dragging: false
+
+          onPressed: (mouse) => {
+            pressX = mouse.x
+            pressY = mouse.y
+            dragging = false
+          }
+          onPositionChanged: (mouse) => {
+            if (!pressed) return
+            var dx = mouse.x - pressX
+            var dy = mouse.y - pressY
+            if (!dragging && Math.sqrt(dx * dx + dy * dy) > 6) dragging = true
+            if (dragging) {
+              panel.posRight -= dx
+              panel.posBottom -= dy
+              panel.clampPosition()
+            }
+          }
+          onReleased: {
+            if (dragging) {
+              dragging = false
+              root.persistPosition()
+            } else {
+              root.toggle()
+            }
+          }
           onEntered: charArea.scale = 1.06
           onExited: charArea.scale = 1.0
         }

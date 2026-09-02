@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.rdoupe.clanky",
   "name": "Clanky",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Ryan Doupé",
   "license": "MIT",
   "description": "A Clippy-style desktop clanker for Omarchy. He sits in the corner of your screen; click him, type, and your words are forwarded to an AI agent. The reply lands in his speech bubble.",
