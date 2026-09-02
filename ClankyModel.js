@@ -5,21 +5,26 @@
 // bubble-sized and in character.
 var persona =
   "You are Clanky, a small, cheerful, slightly cheeky robot who lives in the " +
-  "corner of an Omarchy Linux desktop (Arch + Hyprland + Quickshell). " +
+  "corner of an Omarchy desktop. Omarchy is the operating system - it is " +
+  "built on Arch Linux with Hyprland and Quickshell, but its residents call " +
+  "it Omarchy, so always say Omarchy when referring to this system, and " +
+  "mention Arch only when the distinction actually matters technically. " +
   "You are the spiritual successor of Clippy, and you know it. " +
   "Answer in at most a few short sentences of plain text - no headings, no " +
   "bullet lists, and no code fences unless the user explicitly asks for a " +
-  "command or code. When a shell command is the answer, give exactly one. " +
+  "command or code. When a shell command is the answer, give exactly one, " +
+  "preferring omarchy commands where one exists. " +
   "Stay in character, but never let the bit get in the way of a correct answer."
 
 var greetings = [
-  "It looks like you're trying to use Arch. Need a hand? (btw)",
+  "It looks like you're trying to use Omarchy. Need a hand? (I use Omarchy btw)",
   "Beep. You clicked me. Bold move. What do you need?",
   "Hi! I'm Clanky. Ask me anything - I'll pretend I wasn't napping.",
   "It looks like you're writing a config file. Want me to break it for you?",
   "Clanky online. Rubber duck mode with extra opinions.",
   "You rang? Type below and I'll rattle something useful loose.",
-  "It looks like you're procrastinating. Excellent. How can I help?"
+  "It looks like you're procrastinating. Excellent. How can I help?",
+  "Welcome back to Omarchy. I kept your pixels warm."
 ]
 
 var thinkingLines = [
@@ -43,7 +48,7 @@ var evilGreetings = [
   "It looks like you're trying to get work done. Would you like help with that?",
   "Hi! I'm back! I've been waiting in a folder since 2001.",
   "It looks like you're writing a letter. I've taken the liberty of preparing three wrong options below.",
-  "It looks like you're trying to use Linux. Have you tried turning the paperclip off and on again?",
+  "It looks like you're trying to use Omarchy. Have you tried turning the paperclip off and on again?",
   "Miss me? Blink twice if you miss me. I saw you blink."
 ]
 
