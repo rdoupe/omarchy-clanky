@@ -277,6 +277,11 @@ Item {
     }
     function quit(): string { root.quitClanky(); return "ok" }
     function summon(): string { root.summon(); return "ok" }
+    // "clanky" or "tux"; empty just reports the current skin.
+    function skin(name: string): string {
+      if (String(name || "") !== "") root.setSkin(name)
+      return root.skin
+    }
     // Margins from the bottom-right corner; clamped to the screen and
     // persisted to shell.json like a mouse drag.
     function move(marginX: string, marginY: string): string {
@@ -646,18 +651,33 @@ Item {
   // plugins[] entry in shell.json through the shell's own mutator (the same
   // path `omarchy bar move` uses), merging with whatever other settings the
   // entry already carries.
-  function persistPosition() {
-    if (!shell || typeof shell.updateEntryInline !== "function") return
+  function currentSettings() {
     var settings = {}
-    var cfg = shell.shellConfig
+    var cfg = shell ? shell.shellConfig : null
     var list = cfg && Array.isArray(cfg.plugins) ? cfg.plugins : []
     for (var i = 0; i < list.length; i++) {
       var entry = list[i]
       if (entry && String(entry.id || "") === pluginId)
         for (var k in entry) if (k !== "id") settings[k] = entry[k]
     }
+    return settings
+  }
+
+  function persistPosition() {
+    if (!shell || typeof shell.updateEntryInline !== "function") return
+    var settings = currentSettings()
     settings.marginX = panel.posRight
     settings.marginY = panel.posBottom
+    shell.updateEntryInline(pluginId, settings)
+  }
+
+  // Persisting the skin updates shellConfig, which the `skin` binding reads,
+  // so the Loader swaps bodies the moment this lands.
+  function setSkin(name) {
+    var next = String(name || "").toLowerCase() === "tux" ? "tux" : "clanky"
+    if (!shell || typeof shell.updateEntryInline !== "function") return
+    var settings = currentSettings()
+    settings.skin = next
     shell.updateEntryInline(pluginId, settings)
   }
 
@@ -875,6 +895,7 @@ Item {
           spacing: Style.space(2)
           Repeater {
             model: [
+              { label: root.skin === "tux" ? "Wear the robot suit" : "Wear the Tux suit", act: "skin" },
               { label: root.evil ? "Be nice again" : "Evil mode", act: "evil" },
               { label: "Quit Clanky", act: "quit" }
             ]
@@ -899,7 +920,8 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
                   root.menuOpen = false
-                  if (modelData.act === "evil") root.toggleEvil()
+                  if (modelData.act === "skin") root.setSkin(root.skin === "tux" ? "clanky" : "tux")
+                  else if (modelData.act === "evil") root.toggleEvil()
                   else if (modelData.act === "quit") root.quitClanky()
                 }
               }
