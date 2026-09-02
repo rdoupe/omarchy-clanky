@@ -20,7 +20,7 @@ var greetings = [
   "It looks like you're trying to use Omarchy. Need a hand? (I use Omarchy btw)",
   "Beep. You clicked me. Bold move. What do you need?",
   "Hi! I'm Clanky. Ask me anything - I'll pretend I wasn't napping.",
-  "It looks like you're writing a config file. Want me to break it for you?",
+  "It looks like you're writing a config file. Want a second pair of eyes?",
   "Clanky online. Rubber duck mode with extra opinions.",
   "You rang? Type below and I'll rattle something useful loose.",
   "It looks like you're procrastinating. Excellent. How can I help?",

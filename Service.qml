@@ -288,7 +288,9 @@ Item {
     // "clanky" or "tux"; empty just reports the current skin.
     function skin(name: string): string {
       if (String(name || "") !== "") root.setSkin(name)
-      return root.skin
+      // Evil mode overrides the body, so say so rather than reporting a
+      // skin the caller cannot see.
+      return root.evil ? root.skin + " (hidden while evil mode is on)" : root.skin
     }
     // Margins from the bottom-right corner; clamped to the screen and
     // persisted to shell.json like a mouse drag.
@@ -918,11 +920,20 @@ Item {
           anchors.margins: Style.space(6)
           spacing: Style.space(2)
           Repeater {
-            model: [
-              { label: root.skin === "tux" ? "Wear the robot suit" : "Wear the Tux suit", act: "skin" },
-              { label: root.evil ? "Be nice again" : "Evil mode", act: "evil" },
-              { label: "Quit Clanky", act: "quit" }
-            ]
+            // Evil mode has exactly one body, so the skin row would be a
+            // dead control there — hide it rather than offer a switch with
+            // no visible effect.
+            model: {
+              var items = []
+              if (!root.evil)
+                items.push({
+                  label: root.skin === "tux" ? "Wear the robot suit" : "Wear the Tux suit",
+                  act: "skin"
+                })
+              items.push({ label: root.evil ? "Be nice again" : "Evil mode", act: "evil" })
+              items.push({ label: "Quit Clanky", act: "quit" })
+              return items
+            }
             Rectangle {
               width: parent.width
               height: Style.space(28)
