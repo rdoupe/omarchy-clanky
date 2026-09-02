@@ -664,7 +664,12 @@ Item {
   PanelWindow {
     id: panel
     visible: !root.quitHidden
-    anchors { bottom: true; right: true }
+
+    // While the bubble or context menu is open, the surface expands to the
+    // whole screen so a click anywhere dismisses it (the way real popups
+    // behave); closed, it shrinks back to a small corner surface.
+    readonly property bool expanded: root.opened || root.menuOpen
+    anchors { left: panel.expanded; top: panel.expanded; bottom: true; right: true }
 
     // Corner offsets. Initialized from shell.json; dragging the robot
     // reassigns them (breaking the binding) and persists on release.
@@ -672,15 +677,17 @@ Item {
     property int posBottom: Math.max(0, parseInt(root.setting("marginY", 16)) || 16)
 
     function clampPosition() {
-      var maxRight = screen ? Math.max(0, screen.width - width) : 100000
-      var maxBottom = screen ? Math.max(0, screen.height - height) : 100000
+      // Clamp against the content box, not the window: while expanded the
+      // window is the whole screen and would clamp the margins to zero.
+      var maxRight = screen ? Math.max(0, screen.width - windowContent.width) : 100000
+      var maxBottom = screen ? Math.max(0, screen.height - windowContent.height) : 100000
       posRight = Math.min(Math.max(0, posRight), maxRight)
       posBottom = Math.min(Math.max(0, posBottom), maxBottom)
     }
 
     margins {
-      right: panel.posRight
-      bottom: panel.posBottom
+      right: panel.expanded ? 0 : panel.posRight
+      bottom: panel.expanded ? 0 : panel.posBottom
     }
     implicitWidth: Style.space(400)
     implicitHeight: Style.space(500)
@@ -691,23 +698,30 @@ Item {
       ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
     // Closed: only the robot is clickable, the rest of the surface lets
-    // clicks through to whatever is underneath. Open: the whole surface is
-    // ours so a click outside the bubble can close it.
-    mask: Region { item: (root.opened || root.menuOpen) ? windowContent : charArea }
+    // clicks through to whatever is underneath. Expanded: the whole screen
+    // is ours so a click anywhere dismisses the bubble/menu.
+    mask: Region { item: panel.expanded ? backstop : charArea }
+
+    // Click-anywhere-to-dismiss backstop; sits under the bubble and robot.
+    MouseArea {
+      id: backstop
+      anchors.fill: parent
+      visible: panel.expanded
+      acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+      onClicked: {
+        root.close()
+        root.menuOpen = false
+      }
+    }
 
     Item {
       id: windowContent
-      anchors.fill: parent
-
-      // Click-outside-to-close backstop; sits under the bubble and robot.
-      MouseArea {
-        anchors.fill: parent
-        visible: root.opened || root.menuOpen
-        onClicked: {
-          root.close()
-          root.menuOpen = false
-        }
-      }
+      width: Style.space(400)
+      height: Style.space(500)
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      anchors.rightMargin: panel.expanded ? panel.posRight : 0
+      anchors.bottomMargin: panel.expanded ? panel.posBottom : 0
 
       // ---------------------------------------------------------- bubble
       Rectangle {
