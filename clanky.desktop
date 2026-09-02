@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Clanky
+GenericName=Desktop Clanker
+Comment=Summon Clanky, the Clippy-style desktop clanker
+Exec=omarchy-shell clanky summon
+Icon=clanky
+Terminal=false
+Categories=Utility;
+Keywords=assistant;ai;clippy;robot;

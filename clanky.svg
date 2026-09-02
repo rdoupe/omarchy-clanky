@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Clanky: paperclip antenna, head with eyes, body with EQ bars, feet -->
+  <g fill="none" stroke="#eb927b" stroke-width="2.4" stroke-linecap="round">
+    <path d="M29 16 V8 a4 4 0 0 1 8 0 v10 a2 2 0 0 1 -4 0 V10"/>
+  </g>
+  <rect x="14" y="18" width="36" height="18" rx="7" fill="#5b6a9e"/>
+  <ellipse cx="26" cy="27" rx="4.4" ry="5" fill="#f2f5ff"/>
+  <ellipse cx="38" cy="27" rx="4.4" ry="5" fill="#f2f5ff"/>
+  <circle cx="26" cy="27" r="2" fill="#12131c"/>
+  <circle cx="38" cy="27" r="2" fill="#12131c"/>
+  <circle cx="17.5" cy="32" r="2" fill="#bb9af7" opacity="0.8"/>
+  <circle cx="46.5" cy="32" r="2" fill="#bb9af7" opacity="0.8"/>
+  <rect x="12" y="38" width="40" height="16" rx="7" fill="#24283b" stroke="#7aa2f7" stroke-width="1.4"/>
+  <rect x="25" y="45.5" width="2.8" height="5" rx="1.4" fill="#f7768e"/>
+  <rect x="30.5" y="43" width="2.8" height="7.5" rx="1.4" fill="#e0af68"/>
+  <rect x="36" y="46.5" width="2.8" height="4" rx="1.4" fill="#9ece6a"/>
+  <rect x="18" y="55" width="10" height="5" rx="2.5" fill="#414868"/>
+  <rect x="36" y="55" width="10" height="5" rx="2.5" fill="#414868"/>
+</svg>

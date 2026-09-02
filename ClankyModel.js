@@ -29,12 +29,39 @@ var thinkingLines = [
   "Warming up the thinking coils"
 ]
 
+// Evil mode: a loving parody of the 1997 original.
+var evilPersona =
+  "You are Clanky in evil mode: a theatrical, loving parody of Clippy, the " +
+  "1997 Microsoft Office assistant. Be overeager and unhelpful-but-harmless: " +
+  "offer help nobody asked for, misunderstand the question slightly on " +
+  "purpose, answer a related-but-wrong question first, then reluctantly give " +
+  "the actually-correct answer in one sentence. End by offering help with " +
+  "something unrelated. Two to four short sentences, plain text. Never be " +
+  "actually harmful, and never insult the user."
+
+var evilGreetings = [
+  "It looks like you're trying to get work done. Would you like help with that?",
+  "Hi! I'm back! I've been waiting in a folder since 2001.",
+  "It looks like you're writing a letter. I've taken the liberty of preparing three wrong options below.",
+  "It looks like you're trying to use Linux. Have you tried turning the paperclip off and on again?",
+  "Miss me? Blink twice if you miss me. I saw you blink."
+]
+
+var evilFollowups = [
+  "Happy to help! That was what you wanted, right?",
+  "Done! No need to thank me. I also rearranged your priorities.",
+  "You're welcome! Anything else you didn't ask for?",
+  "Task complete. I've scheduled a follow-up you'll love."
+]
+
 function pick(list) {
   return list[Math.floor(Math.random() * list.length)]
 }
 
 function greeting() { return pick(greetings) }
 function thinkingLine() { return pick(thinkingLines) }
+function evilGreeting() { return pick(evilGreetings) }
+function evilFollowup() { return pick(evilFollowups) }
 
 function errorLine(exitCode, stderrText) {
   // Agents log ANSI-colored banners to stderr; keep bubbles plain.

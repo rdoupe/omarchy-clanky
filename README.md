@@ -34,6 +34,8 @@ memory yet).
 
 ```bash
 ln -s "$(pwd)" ~/.config/omarchy/plugins/io.github.rdoupe.clanky
+cp clanky.desktop ~/.local/share/applications/
+cp clanky.svg ~/.local/share/icons/hicolor/scalable/apps/
 ```
 
 Then enable the service by adding it to the top-level `plugins` array in
@@ -60,6 +62,35 @@ re-dresses instantly on `omarchy theme set`, no restart; sparse themes fall
 back to the shell's role colors. While he's thinking, the chest lights
 chase and the paperclip pulses.
 
+## Skins
+
+Two bodies, one soul. Set `"skin"` on the shell.json entry:
+
+- `"clanky"` (default) — the classic robot: accent-washed head, panel body,
+  EQ-bar chest, paperclip antenna.
+- `"tux"` — a robotic Linux penguin: dark chassis egg, pale belly plate with
+  the Omarchy mark breathing on it (it spins while he thinks), orange beak
+  and feet, stubby wings — and the paperclip antenna, of course.
+
+## Evil mode
+
+Right-click Clanky and choose **Evil mode**. He morphs into a large,
+constantly wobbling paperclip with googly eyes — the ghost of 1997 — and the
+bubble turns legal-pad yellow and offers the classic assistant options:
+
+- **Open a browser** — opens a terminal.
+- **Open a terminal** — opens a browser.
+- **Get help writing a letter** — schedules a reminder that interrupts you
+  in one minute to ask if you're still writing that letter.
+
+Typed questions still go to the agent, but with a persona that answers the
+way Clippy would have. Right-click → **Be nice again** to exorcise. All of
+it is harmless parody; nothing destructive is ever on the menu.
+
+The right-click menu also has **Quit Clanky**, which hides him for the
+session. Bring him back from the app launcher (the **Clanky** entry
+installed below) or with `omarchy-shell clanky summon`.
+
 ## Moving him
 
 Drag the robot anywhere on screen; a plain click still toggles the bubble.
@@ -80,6 +111,7 @@ All settings live on the `plugins[]` entry in `shell.json`:
 | `command` | *(omarchy default agent)*        | Override the agent entirely; the prompt is written to its stdin, stdout is the reply |
 | `marginX` | `16`                             | Distance from the right screen edge (px); updated automatically by dragging |
 | `marginY` | `16`                             | Distance from the bottom screen edge (px); updated automatically by dragging |
+| `skin`    | `"clanky"`                       | `"clanky"` or `"tux"` |
 
 Example — use OpenCode instead:
 
@@ -94,6 +126,9 @@ omarchy-shell clanky toggle          # open/close the bubble
 omarchy-shell clanky ask "why is my wifi sad"
 omarchy-shell clanky state           # closed | open | thinking
 omarchy-shell clanky move 16 16      # reposition (persisted)
+omarchy-shell clanky evil            # toggle evil mode
+omarchy-shell clanky quit            # hide for this session
+omarchy-shell clanky summon          # bring him back (the launcher entry runs this)
 ```
 
 Bind him to a key in `~/.config/hypr/bindings.lua`:
