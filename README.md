@@ -64,7 +64,10 @@ chase and the paperclip pulses.
 
 ## Skins
 
-Two bodies, one soul. Set `"skin"` on the shell.json entry:
+Two bodies, one soul. Right-click Clanky and pick **Wear the Tux suit** /
+**Wear the robot suit** — the choice persists. Scripts can use
+`omarchy-shell clanky skin <clanky|tux>`, and the stored value lives as
+`"skin"` on the shell.json entry:
 
 - `"clanky"` (default) — the classic robot: accent-washed head, panel body,
   EQ-bar chest, paperclip antenna.
