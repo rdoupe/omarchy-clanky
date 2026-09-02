@@ -33,13 +33,12 @@ memory yet).
 ## Install
 
 ```bash
-ln -s "$(pwd)" ~/.config/omarchy/plugins/io.github.rdoupe.clanky
-cp clanky.desktop ~/.local/share/applications/
-cp clanky.svg ~/.local/share/icons/hicolor/scalable/apps/
+omarchy plugin add https://github.com/rdoupe/omarchy-clanky --enable
 ```
 
-Then enable the service by adding it to the top-level `plugins` array in
-`~/.config/omarchy/shell.json`:
+That's it — Clanky appears in the bottom-right corner. If you enabled it by
+hand instead, the service is switched on by an entry in the top-level
+`plugins` array of `~/.config/omarchy/shell.json`:
 
 ```json
 "plugins": [
@@ -47,8 +46,28 @@ Then enable the service by adding it to the top-level `plugins` array in
 ]
 ```
 
-The shell hot-reloads; if Clanky doesn't appear, run
-`omarchy-shell shell rescanPlugins`.
+Optional extras (both are opt-in copies, nothing installs itself):
+
+```bash
+# App-launcher entry + icon, so the launcher can summon a quit Clanky
+cp clanky.desktop ~/.local/share/applications/
+cp clanky.svg ~/.local/share/icons/hicolor/scalable/apps/
+
+# Clanky-aware close key (see "Closing him with Super+W" below)
+cp clanky-close ~/.local/bin/
+```
+
+## Remove
+
+```bash
+omarchy plugin remove io.github.rdoupe.clanky
+```
+
+Then delete the optional extras if you copied them:
+`~/.local/share/applications/clanky.desktop`,
+`~/.local/share/icons/hicolor/scalable/apps/clanky.svg`,
+`~/.local/bin/clanky-close`, and any `clanky-close` binding you added to
+`~/.config/hypr/bindings.lua`.
 
 ## Theme-aware, head to toe
 
@@ -154,6 +173,36 @@ o.bind("SUPER + W", "Close window / Clanky", "clanky-close")
 He never grabs keyboard focus while closed and takes it only on-demand while
 the bubble is open, so Hyprland keybindings keep working either way. (Avoid
 SUPER+SHIFT+C for a toggle bind — Omarchy's preinstalled HEY webapp owns it.)
+
+## External dependencies and what Clanky touches
+
+Clanky is a single QML service inside the `omarchy-shell` process — no
+daemon, no bundled binaries, no network access of its own.
+
+Programs it runs (all optional, all already on your system or chosen by
+you):
+
+- **The AI agent**: whichever CLI `omarchy default agent` points at
+  (`claude`, `opencode`, `codex`, `gemini`, `copilot`, `grok`, `crush`,
+  `pi`, or `omp`), spawned once per question with your prompt on
+  stdin/argv. The agent does its own networking under its own account —
+  Clanky just reads its stdout. No agent installed? He apologizes in the
+  bubble.
+- **Evil mode options** run `omarchy launch terminal`,
+  `omarchy launch browser`, and `omarchy reminder` — stock Omarchy
+  commands, only when you click them.
+- The bundled `clanky-close` script (only if you install and bind it)
+  runs `omarchy-shell` and `hyprctl dispatch killactive`.
+
+Files it writes:
+
+- Its own entry in `~/.config/omarchy/shell.json` — position and skin,
+  through the shell's own config writer, and only when you drag him or
+  pick a skin from his menu. Nothing else in your configuration is
+  touched.
+
+Files it reads: the active theme's `colors.toml` and
+`~/.config/omarchy/defaults/agent`. No sudo or pkexec is required or used.
 
 ## Prior art
 
