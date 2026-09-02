@@ -41,8 +41,12 @@ Item {
   // and the surface backgrounds — so Clanky looks like he was shipped with
   // the theme, not painted from its side palette. The hues stay as small
   // pops: cheeks, chest lights, antenna tip.
-  readonly property color cHead: Color.accent
+  // The head is derived from the body fill rather than painted raw accent —
+  // a full-saturation accent slab clashes on some themes. Washing ~45%
+  // accent over the body color keeps the two panels in the same material
+  // family with the accent as a tint.
   readonly property color cBody: tc("lighter_background", Util.alpha(Color.foreground, 0.15))
+  readonly property color cHead: Qt.tint(cBody, Util.alpha(Color.accent, 0.45))
   readonly property color cBodyBorder: Util.alpha(Color.accent, 0.6)
   readonly property color cOutline: tc("darker_background", Util.alpha(Color.background, 0.8))
   readonly property color cEye: tc("bright_foreground", Color.foreground)
