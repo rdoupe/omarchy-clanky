@@ -722,7 +722,23 @@ Item {
     // Closed: only the robot is clickable, the rest of the surface lets
     // clicks through to whatever is underneath. Expanded: the whole screen
     // is ours so a click anywhere dismisses the bubble/menu.
-    mask: Region { item: panel.expanded ? backstop : charArea }
+    //
+    // The closed region is computed in window coordinates rather than
+    // handed `item: charArea`: the robot is a grandchild of the window
+    // (window > windowContent > charArea), so its own x/y are relative to
+    // windowContent and put the input region in the middle of the screen
+    // instead of over him — he rendered in the corner but ate no clicks.
+    // The padding covers the idle bob and the hover scale so the hit box
+    // never lags the drawing.
+    readonly property int charPad: Style.space(6)
+    mask: Region {
+      x: panel.expanded ? 0
+        : panel.width - panel.posRight - charArea.width - panel.charPad
+      y: panel.expanded ? 0
+        : panel.height - panel.posBottom - charArea.height - panel.charPad
+      width: panel.expanded ? panel.width : charArea.width + 2 * panel.charPad
+      height: panel.expanded ? panel.height : charArea.height + 2 * panel.charPad
+    }
 
     // Click-anywhere-to-dismiss backstop; sits under the bubble and robot.
     MouseArea {

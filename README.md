@@ -8,7 +8,9 @@ text field. Whatever you type is forwarded to an AI agent CLI (`claude -p` by
 default), and the reply lands in his speech bubble — short, cheerful, and a
 little cheeky.
 
-> "It looks like you're trying to use Arch. Need a hand? (btw)"
+> "It looks like you're trying to use Omarchy. Need a hand? (I use Omarchy btw)"
+
+![Clanky, the robot skin, with his speech bubble open](assets/robot.png)
 
 ## How it works
 
@@ -94,6 +96,8 @@ Two bodies, one soul. Right-click Clanky and pick **Wear the Tux suit** /
   the Omarchy mark breathing on it (it spins while he thinks), orange beak
   and feet, stubby wings — and the paperclip antenna, of course.
 
+![The Tux skin, with the Omarchy mark on his belly](assets/tux.png)
+
 ## Evil mode
 
 Right-click Clanky and choose **Evil mode**. He morphs into a large,
@@ -104,6 +108,8 @@ bubble turns legal-pad yellow and offers the classic assistant options:
 - **Open a terminal** — opens a browser.
 - **Get help writing a letter** — schedules a reminder that interrupts you
   in one minute to ask if you're still writing that letter.
+
+![Evil mode: a wobbling paperclip offering three unhelpful options](assets/evil.png)
 
 Typed questions still go to the agent, but with a persona that answers the
 way Clippy would have. Right-click → **Be nice again** to exorcise. All of
