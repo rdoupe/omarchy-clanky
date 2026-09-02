@@ -277,6 +277,14 @@ Item {
     }
     function quit(): string { root.quitClanky(); return "ok" }
     function summon(): string { root.summon(); return "ok" }
+    // Close the bubble/menu if anything is showing. Returns "dismissed" or
+    // "nothing", so a close keybinding can fall through to killactive.
+    function dismiss(): string {
+      var had = root.opened || root.menuOpen
+      root.menuOpen = false
+      root.close()
+      return had ? "dismissed" : "nothing"
+    }
     // "clanky" or "tux"; empty just reports the current skin.
     function skin(name: string): string {
       if (String(name || "") !== "") root.setSkin(name)

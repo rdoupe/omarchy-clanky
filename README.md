@@ -134,14 +134,26 @@ omarchy-shell clanky quit            # hide for this session
 omarchy-shell clanky summon          # bring him back (the launcher entry runs this)
 ```
 
-Bind him to a key in `~/.config/hypr/bindings.lua`:
+### Closing him with Super+W
+
+Clanky is a layer surface, so Hyprland's `killactive` can't see him — a bare
+close bind will close the window *behind* him. The bundled `clanky-close`
+script gives the close key native feel: it dismisses Clanky's bubble or menu
+when one is up and otherwise closes the active window like the stock bind.
+
+```bash
+cp clanky-close ~/.local/bin/
+```
 
 ```lua
-o.bind("SUPER + SHIFT + C", "Clanky", "omarchy-shell clanky toggle")
+-- ~/.config/hypr/bindings.lua
+hl.unbind("SUPER + W")
+o.bind("SUPER + W", "Close window / Clanky", "clanky-close")
 ```
 
 He never grabs keyboard focus while closed and takes it only on-demand while
-the bubble is open, so Hyprland keybindings keep working either way.
+the bubble is open, so Hyprland keybindings keep working either way. (Avoid
+SUPER+SHIFT+C for a toggle bind — Omarchy's preinstalled HEY webapp owns it.)
 
 ## Prior art
 

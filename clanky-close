@@ -1,0 +1,8 @@
+#!/bin/bash
+# Clanky-aware window close. Bind this to your close key (Super+W):
+# if Clanky's bubble or menu is up it closes that, otherwise it closes the
+# active window like the stock bind. Layer surfaces are invisible to
+# killactive, so the shortcut can't reach Clanky without this shim.
+if [ "$(omarchy-shell clanky dismiss 2>/dev/null)" != "dismissed" ]; then
+  hyprctl dispatch killactive
+fi
