@@ -18,15 +18,17 @@ No Electron, no extra daemon. When the bubble is closed, only the robot's few
 thousand square pixels accept input — clicks everywhere else pass through to
 your windows.
 
-Each question pipes your text to the agent command's stdin and reads stdout as
-the reply. The default command is:
-
-```
-claude -p --append-system-prompt "<Clanky's persona>"
-```
-
-so replies stay bubble-sized and in character. Each ask is a fresh agent run
-(no conversation memory yet).
+Clanky's brain is **the omarchy-wide default coding agent** — the one you
+picked in the installer/firstboot, stored in
+`~/.config/omarchy/defaults/agent` and changed with
+`omarchy default agent <name>`. He watches that file, so switching the
+default re-wires him live. All nine Omarchy agents are mapped to their
+headless one-shot form (claude `-p` with a persona system prompt and the
+question on stdin; opencode `run`, codex `exec`, gemini/copilot/grok `-p`,
+crush `run`, pi/omp positional — those get the persona prepended to the
+prompt). Unset or unknown falls back to claude, and a `command` override in
+`shell.json` always wins. Each ask is a fresh agent run (no conversation
+memory yet).
 
 ## Install
 
@@ -75,7 +77,7 @@ All settings live on the `plugins[]` entry in `shell.json`:
 
 | Key       | Default                          | Meaning                                    |
 |-----------|----------------------------------|--------------------------------------------|
-| `command` | `["claude", "-p", …persona]`     | Agent command; the prompt is written to its stdin, stdout is the reply |
+| `command` | *(omarchy default agent)*        | Override the agent entirely; the prompt is written to its stdin, stdout is the reply |
 | `marginX` | `16`                             | Distance from the right screen edge (px); updated automatically by dragging |
 | `marginY` | `16`                             | Distance from the bottom screen edge (px); updated automatically by dragging |
 

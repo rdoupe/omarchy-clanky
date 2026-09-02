@@ -118,10 +118,42 @@ Item {
     return fallback
   }
 
-  function agentCommand() {
+  // The omarchy-wide default coding agent, as picked in the installer /
+  // firstboot or via `omarchy default agent <name>`. Watched, so switching
+  // the default re-wires Clanky's brain live.
+  property string defaultAgent: ""
+  FileView {
+    id: agentFile
+    path: Quickshell.env("HOME") + "/.config/omarchy/defaults/agent"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.defaultAgent = String(text() || "").trim()
+    onFileChanged: reload()
+    onLoadFailed: root.defaultAgent = ""
+  }
+
+  // One-shot invocation for the active agent. A `command` override in
+  // shell.json always wins (prompt on stdin). Otherwise the omarchy default
+  // agent is used with its own headless syntax: claude takes the persona as
+  // a system prompt and reads stdin; the others get persona + prompt as one
+  // argument. Unset or unknown falls back to claude.
+  function agentInvocation(prompt) {
     var custom = setting("command", null)
-    if (Array.isArray(custom) && custom.length > 0) return custom.map(String)
-    return ["claude", "-p", "--append-system-prompt", ClankyModel.persona]
+    if (Array.isArray(custom) && custom.length > 0)
+      return { command: custom.map(String), stdin: prompt }
+    var combined = ClankyModel.persona + "\n\n" + prompt
+    switch (root.defaultAgent) {
+    case "opencode": return { command: ["opencode", "run", combined], stdin: null }
+    case "codex": return { command: ["codex", "exec", "--skip-git-repo-check", combined], stdin: null }
+    case "gemini": return { command: ["gemini", "-p", combined], stdin: null }
+    case "copilot": return { command: ["copilot", "-p", combined], stdin: null }
+    case "crush": return { command: ["crush", "run", combined], stdin: null }
+    case "grok": return { command: ["grok", "-p", combined], stdin: null }
+    case "pi": return { command: ["pi", combined], stdin: null }
+    case "omp": return { command: ["omp", combined], stdin: null }
+    default:
+      return { command: ["claude", "-p", "--append-system-prompt", ClankyModel.persona], stdin: prompt }
+    }
   }
 
   function open() {
@@ -142,9 +174,13 @@ Item {
     thinkingDots = 0
     errorText = ""
     reply = ""
-    pendingPrompt = prompt
     lastPrompt = prompt
-    agentProc.command = agentCommand()
+    var inv = agentInvocation(prompt)
+    pendingPrompt = inv.stdin === null ? "" : inv.stdin
+    agentProc.command = inv.command
+    // Always open stdin and close it right after start: agents that take the
+    // prompt as an argument still wait for EOF on a dangling pipe (opencode
+    // does), and the close is what delivers it.
     agentProc.stdinEnabled = true
     agentProc.running = true
     timeoutTimer.restart()
@@ -162,7 +198,7 @@ Item {
     stdout: StdioCollector { id: agentOut; waitForEnd: true }
     stderr: StdioCollector { id: agentErr; waitForEnd: true }
     onStarted: {
-      agentProc.write(root.pendingPrompt + "\n")
+      if (root.pendingPrompt !== "") agentProc.write(root.pendingPrompt + "\n")
       agentProc.stdinEnabled = false
     }
     onExited: (exitCode, exitStatus) => {

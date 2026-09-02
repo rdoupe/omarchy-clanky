@@ -37,7 +37,10 @@ function greeting() { return pick(greetings) }
 function thinkingLine() { return pick(thinkingLines) }
 
 function errorLine(exitCode, stderrText) {
-  var detail = String(stderrText || "").trim()
+  // Agents log ANSI-colored banners to stderr; keep bubbles plain.
+  var detail = String(stderrText || "")
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+    .trim()
   if (detail.length > 300) detail = detail.slice(0, 300) + "…"
   var line = "Clunk. My brain call failed (exit " + exitCode + ")."
   if (detail !== "") line += "\n\n" + detail
@@ -48,5 +51,5 @@ var timeoutLine =
   "Clunk. That one took too long, so I pulled the plug. Try asking again?"
 
 var missingAgentLine =
-  "Clunk. I couldn't start my brain. Is the agent command on PATH? " +
-  "(Default: claude)"
+  "Clunk. I couldn't start my brain. Is the default agent installed? " +
+  "(Check: omarchy default agent)"
