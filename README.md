@@ -192,15 +192,15 @@ Programs it runs (all optional, all already on your system or chosen by
 you):
 
 - **The AI agent**, wrapped by the bundled `clanky-agent-run` helper
-  (`python3`, standard library only): whichever CLI
+  (`python3` plus stock `setpriv --pdeathsig`): whichever CLI
   `omarchy default agent` points at (`claude`, `opencode`, `codex`,
   `gemini`, `copilot`, `grok`, `crush`, `pi`, or `omp`), spawned once per
   question with your prompt on stdin/argv. The helper caps stdout at
   64 KiB and stderr at 16 KiB and kills the agent process tree if either
-  ceiling is crossed, or if you cancel, dismiss, or quit mid-ask. The
-  agent does its own networking under its own account — Clanky just
-  reads the helper's already-capped stdout. No agent installed? He
-  apologizes in the bubble.
+  ceiling is crossed, or if you cancel, dismiss, or quit mid-ask. Replies
+  are shown as plain text. The agent does its own networking under its
+  own account — Clanky just reads the helper's already-capped stdout. No
+  agent installed? He apologizes in the bubble.
 - **Evil mode options** run `omarchy launch terminal`,
   `omarchy launch browser`, and `omarchy reminder` — stock Omarchy
   commands, only when you click them.

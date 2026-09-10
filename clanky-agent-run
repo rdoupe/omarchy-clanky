@@ -4,9 +4,10 @@
 Clanky's QML Process uses unbounded StdioCollectors. This helper is the
 security boundary in front of them: it is the only process Quickshell
 collects from, and it never forwards more than the configured ceilings.
-Crossing a ceiling is fail-closed — the agent process tree is terminated
-(SIGTERM, then SIGKILL) before more bytes are written, and the helper
-exits 125.
+Crossing a ceiling is fail-closed — the agent process tree and process
+group are terminated (SIGTERM, then SIGKILL) and the helper does not
+exit until that group is empty (or a short reap deadline elapses).
+Exit status 125 means overflow.
 
 Usage:
   clanky-agent-run [--stdout-bytes N] [--stderr-bytes N] -- cmd [args...]
@@ -28,8 +29,10 @@ DEFAULT_STDOUT_BYTES = 64 * 1024
 DEFAULT_STDERR_BYTES = 16 * 1024
 EXIT_OVERFLOW = 125
 KILL_GRACE_S = 0.2
+REAP_DEADLINE_S = 1.0
 
 _child = None
+_child_pgid = None
 _overflow = threading.Event()
 _stopping = threading.Event()
 
@@ -83,31 +86,39 @@ def _child_preexec():
         pass
 
 
-def _descendants(root):
-    """PIDs of root and every living descendant, via /proc ppid walk."""
-    children_of = {}
+def _stat_ppid_pgrp(pid):
+    with open("/proc/%d/stat" % pid, "r", encoding="utf-8") as fh:
+        stat = fh.read()
+    rparen = stat.rfind(")")
+    if rparen < 0:
+        raise ValueError("stat")
+    fields = stat[rparen + 2 :].split()
+    if len(fields) < 3:
+        raise ValueError("stat")
+    return int(fields[1]), int(fields[2])
+
+
+def _proc_pids():
     try:
         names = os.listdir("/proc")
     except OSError:
-        return [root]
+        return []
+    out = []
     for name in names:
-        if not name.isdigit():
-            continue
-        pid = int(name)
+        if name.isdigit():
+            out.append(int(name))
+    return out
+
+
+def _descendants(root):
+    """PIDs of root and every living descendant, via /proc ppid walk."""
+    if root is None:
+        return []
+    children_of = {}
+    for pid in _proc_pids():
         try:
-            with open("/proc/%d/stat" % pid, "r", encoding="utf-8") as fh:
-                stat = fh.read()
-        except OSError:
-            continue
-        rparen = stat.rfind(")")
-        if rparen < 0:
-            continue
-        fields = stat[rparen + 2 :].split()
-        if len(fields) < 2:
-            continue
-        try:
-            ppid = int(fields[1])
-        except ValueError:
+            ppid, _pgrp = _stat_ppid_pgrp(pid)
+        except (OSError, ValueError):
             continue
         children_of.setdefault(ppid, []).append(pid)
 
@@ -124,16 +135,44 @@ def _descendants(root):
     return out
 
 
+def _group_pids(pgid):
+    if pgid is None:
+        return []
+    found = []
+    for pid in _proc_pids():
+        try:
+            _ppid, pgrp = _stat_ppid_pgrp(pid)
+        except (OSError, ValueError):
+            continue
+        if pgrp == pgid:
+            found.append(pid)
+    return found
+
+
 def _pgid(pid):
+    if pid is None:
+        return None
     try:
         return os.getpgid(pid)
     except OSError:
         return None
 
 
-def _signal_tree(root, sig):
-    pids = _descendants(root)
-    pgid = _pgid(root)
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _living(pids):
+    return [pid for pid in pids if _alive(pid)]
+
+
+def _signal_tree(root, pgid, sig):
+    pids = set(_descendants(root))
+    pids.update(_group_pids(pgid))
     if pgid is not None:
         try:
             os.killpg(pgid, sig)
@@ -147,28 +186,42 @@ def _signal_tree(root, sig):
     return pids
 
 
-def _any_alive(pids):
-    for pid in pids:
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            continue
-    return False
+def _tree_living(root, pgid):
+    return _living(_descendants(root) + _group_pids(pgid))
 
 
-def kill_tree(root):
-    """Fail-closed teardown: SIGTERM the tree, then SIGKILL leftovers."""
-    if root is None:
+def kill_tree(root, pgid=None):
+    """Fail-closed teardown: TERM, KILL, then wait until the group is empty."""
+    if root is None and pgid is None:
         return
-    pids = _signal_tree(root, signal.SIGTERM)
+    if pgid is None:
+        pgid = _pgid(root)
+    _signal_tree(root, pgid, signal.SIGTERM)
     deadline = time.monotonic() + KILL_GRACE_S
     while time.monotonic() < deadline:
-        if not _any_alive(pids):
+        if not _tree_living(root, pgid):
             return
         time.sleep(0.02)
-        pids = _descendants(root)
-    _signal_tree(root, signal.SIGKILL)
+    reap_until = time.monotonic() + REAP_DEADLINE_S
+    while True:
+        _signal_tree(root, pgid, signal.SIGKILL)
+        if not _tree_living(root, pgid):
+            return
+        if time.monotonic() >= reap_until:
+            return
+        time.sleep(0.02)
+
+
+def _close_child_pipes(child):
+    if child is None:
+        return
+    for pipe in (child.stdout, child.stderr):
+        if pipe is None:
+            continue
+        try:
+            pipe.close()
+        except OSError:
+            pass
 
 
 def _pump(src, dst, ceiling):
@@ -195,19 +248,21 @@ def _trip_overflow():
     _stopping.set()
     child = _child
     if child is not None and child.pid:
-        kill_tree(child.pid)
+        kill_tree(child.pid, _child_pgid)
+        _close_child_pipes(child)
 
 
 def _on_signal(signum, _frame):
     _stopping.set()
     child = _child
     if child is not None and child.pid:
-        kill_tree(child.pid)
+        kill_tree(child.pid, _child_pgid)
+        _close_child_pipes(child)
     os._exit(128 + signum)
 
 
 def main(argv=None):
-    global _child
+    global _child, _child_pgid
     stdout_max, stderr_max, command = _parse_args(
         sys.argv[1:] if argv is None else argv
     )
@@ -232,6 +287,11 @@ def main(argv=None):
         sys.stderr.write("clanky-agent-run: failed to start: %s\n" % exc)
         return 126
 
+    try:
+        _child_pgid = os.getpgid(_child.pid)
+    except OSError:
+        _child_pgid = _child.pid
+
     t_out = threading.Thread(
         target=_pump,
         args=(_child.stdout, sys.stdout.buffer, stdout_max),
@@ -246,6 +306,8 @@ def main(argv=None):
     t_err.start()
 
     rc = _child.wait()
+    # Do not return to QML while any member of the agent group is still live.
+    kill_tree(_child.pid, _child_pgid)
     t_out.join(timeout=1.0)
     t_err.join(timeout=1.0)
     if _overflow.is_set():

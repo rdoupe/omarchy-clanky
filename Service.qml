@@ -141,7 +141,6 @@ Item {
     if (reply !== "") return reply
     return greeting
   }
-  readonly property bool bubbleMarkdown: !thinking && errorText === "" && reply !== ""
 
   function setting(key, fallback) {
     var cfg = shell ? shell.shellConfig : null
@@ -231,6 +230,7 @@ Item {
     // python3 + helper + -- + agent argv. The helper, not QML, is the
     // byte-ceiling; collectors can only see what it forwards.
     var argv = [
+      "setpriv", "--pdeathsig", "TERM",
       "python3", root.agentHelper,
       "--stdout-bytes", String(root.agentStdoutCeiling),
       "--stderr-bytes", String(root.agentStderrCeiling),
@@ -256,6 +256,9 @@ Item {
 
   Process {
     id: agentProc
+    // Collectors only ever see helper-capped bytes. clean() is a second
+    // ceiling so a future refactor that bypasses the helper still cannot
+    // assign an arbitrary string into the long-lived shell.
     stdout: StdioCollector { id: agentOut; waitForEnd: true }
     stderr: StdioCollector { id: agentErr; waitForEnd: true }
     onStarted: {
@@ -266,7 +269,7 @@ Item {
       timeoutTimer.stop()
       if (!root.thinking) return // cancelled or timed out; message already set
       root.thinking = false
-      var out = String(agentOut.text || "").trim()
+      var out = ClankyModel.clean(agentOut.text, root.agentStdoutCeiling).trim()
       if (exitCode === root.agentOverflowExit)
         root.errorText = ClankyModel.overflowLine
       else if (exitCode === 0 && out !== "") root.reply = out
@@ -558,6 +561,7 @@ Item {
           Text {
             anchors.centerIn: parent
             text: ""
+            textFormat: Text.PlainText
             font.family: "omarchy"
             font.pixelSize: Style.space(22)
             color: Color.accent
@@ -849,7 +853,7 @@ Item {
               id: replyLabel
               width: replyFlick.width
               text: root.bubbleText
-              textFormat: root.bubbleMarkdown ? Text.MarkdownText : Text.PlainText
+              textFormat: Text.PlainText
               wrapMode: Text.Wrap
               font.family: Style.font.family
               font.pixelSize: Style.font.body
@@ -889,6 +893,7 @@ Item {
                   Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: modelData.label
+                    textFormat: Text.PlainText
                     font.family: Style.font.family
                     font.pixelSize: Style.font.body
                     color: Color.popups.text
@@ -973,6 +978,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 x: Style.space(8)
                 text: modelData.label
+                textFormat: Text.PlainText
                 font.family: Style.font.family
                 font.pixelSize: Style.font.body
                 color: Color.popups.text
