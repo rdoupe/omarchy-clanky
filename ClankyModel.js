@@ -82,6 +82,9 @@ function errorLine(exitCode, stderrText) {
 var timeoutLine =
   "Clunk. That one took too long, so I pulled the plug. Try asking again?"
 
+var overflowLine =
+  "Clunk. That reply was far too long, so I pulled the plug. Try asking again?"
+
 var missingAgentLine =
   "Clunk. I couldn't start my brain. Is the default agent installed? " +
   "(Check: omarchy default agent)"

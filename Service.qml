@@ -116,6 +116,7 @@ Item {
   function quitClanky() {
     menuOpen = false
     opened = false
+    if (thinking || agentProc.running) cancelAsk()
     quitHidden = true
   }
 
@@ -202,6 +203,19 @@ Item {
   function close() { opened = false }
   function toggle() { opened ? close() : open() }
 
+  // Producer-side wrapper: caps agent stdout/stderr and kills the process
+  // tree before any of that data reaches the QML StdioCollectors below.
+  // Qt.resolvedUrl is relative to this file, so the helper travels with the
+  // plugin whether it is a git checkout or ~/.config/omarchy/plugins/….
+  readonly property string agentHelper: {
+    var raw = String(Qt.resolvedUrl("clanky-agent-run") || "")
+    if (raw.indexOf("file://") === 0) raw = raw.slice(7)
+    return raw
+  }
+  readonly property int agentStdoutCeiling: 65536
+  readonly property int agentStderrCeiling: 16384
+  readonly property int agentOverflowExit: 125
+
   function ask(text) {
     var prompt = String(text || "").trim()
     if (prompt === "" || agentProc.running) return
@@ -214,7 +228,16 @@ Item {
     lastPrompt = prompt
     var inv = agentInvocation(prompt)
     pendingPrompt = inv.stdin === null ? "" : inv.stdin
-    agentProc.command = inv.command
+    // python3 + helper + -- + agent argv. The helper, not QML, is the
+    // byte-ceiling; collectors can only see what it forwards.
+    var argv = [
+      "python3", root.agentHelper,
+      "--stdout-bytes", String(root.agentStdoutCeiling),
+      "--stderr-bytes", String(root.agentStderrCeiling),
+      "--"
+    ]
+    for (var i = 0; i < inv.command.length; i++) argv.push(inv.command[i])
+    agentProc.command = argv
     // Always open stdin and close it right after start: agents that take the
     // prompt as an argument still wait for EOF on a dangling pipe (opencode
     // does), and the close is what delivers it.
@@ -225,6 +248,7 @@ Item {
 
   function cancelAsk(message) {
     timeoutTimer.stop()
+    // SIGTERM the helper; its trap tears down the agent process tree.
     if (agentProc.running) agentProc.running = false
     thinking = false
     if (message !== undefined) errorText = message
@@ -243,11 +267,15 @@ Item {
       if (!root.thinking) return // cancelled or timed out; message already set
       root.thinking = false
       var out = String(agentOut.text || "").trim()
-      if (exitCode === 0 && out !== "") root.reply = out
+      if (exitCode === root.agentOverflowExit)
+        root.errorText = ClankyModel.overflowLine
+      else if (exitCode === 0 && out !== "") root.reply = out
       else if (exitCode === 0) root.reply = "…that's all I've got. (Empty reply.)"
       else root.errorText = ClankyModel.errorLine(exitCode, agentErr.text)
     }
   }
+
+  Component.onDestruction: root.cancelAsk()
 
   Timer {
     id: timeoutTimer
@@ -280,7 +308,8 @@ Item {
     // Close the bubble/menu if anything is showing. Returns "dismissed" or
     // "nothing", so a close keybinding can fall through to killactive.
     function dismiss(): string {
-      var had = root.opened || root.menuOpen
+      var had = root.opened || root.menuOpen || root.thinking || agentProc.running
+      if (root.thinking || agentProc.running) root.cancelAsk()
       root.menuOpen = false
       root.close()
       return had ? "dismissed" : "nothing"
