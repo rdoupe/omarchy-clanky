@@ -14,11 +14,14 @@ little cheeky.
 
 ## How it works
 
-Clanky is an `omarchy-shell` plugin of kind `service`: a single QML file that
+Clanky is an `omarchy-shell` plugin of kind `service`: a QML file that
 mounts a Wayland layer-shell window inside the long-running Quickshell process.
 No Electron, no extra daemon. When the bubble is closed, only the robot's few
 thousand square pixels accept input — clicks everywhere else pass through to
-your windows.
+your windows. Each ask is launched through `clanky-agent-run`, a small helper
+that enforces hard stdout/stderr byte ceilings and tears down the agent
+process tree if a ceiling is hit, so the shell never buffers an arbitrary
+model response. A 180-second timeout remains as a secondary limit.
 
 Clanky's brain is **the omarchy-wide default coding agent** — the one you
 picked in the installer/firstboot, stored in
@@ -182,18 +185,22 @@ SUPER+SHIFT+C for a toggle bind — Omarchy's preinstalled HEY webapp owns it.)
 
 ## External dependencies and what Clanky touches
 
-Clanky is a single QML service inside the `omarchy-shell` process — no
+Clanky is a QML service inside the `omarchy-shell` process — no
 daemon, no bundled binaries, no network access of its own.
 
 Programs it runs (all optional, all already on your system or chosen by
 you):
 
-- **The AI agent**: whichever CLI `omarchy default agent` points at
-  (`claude`, `opencode`, `codex`, `gemini`, `copilot`, `grok`, `crush`,
-  `pi`, or `omp`), spawned once per question with your prompt on
-  stdin/argv. The agent does its own networking under its own account —
-  Clanky just reads its stdout. No agent installed? He apologizes in the
-  bubble.
+- **The AI agent**, wrapped by the bundled `clanky-agent-run` helper
+  (`python3` plus stock `setpriv --pdeathsig`): whichever CLI
+  `omarchy default agent` points at (`claude`, `opencode`, `codex`,
+  `gemini`, `copilot`, `grok`, `crush`, `pi`, or `omp`), spawned once per
+  question with your prompt on stdin/argv. The helper caps stdout at
+  64 KiB and stderr at 16 KiB and kills the agent process tree if either
+  ceiling is crossed, or if you cancel, dismiss, or quit mid-ask. Replies
+  are shown as plain text. The agent does its own networking under its
+  own account — Clanky just reads the helper's already-capped stdout. No
+  agent installed? He apologizes in the bubble.
 - **Evil mode options** run `omarchy launch terminal`,
   `omarchy launch browser`, and `omarchy reminder` — stock Omarchy
   commands, only when you click them.

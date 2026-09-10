@@ -68,12 +68,22 @@ function thinkingLine() { return pick(thinkingLines) }
 function evilGreeting() { return pick(evilGreetings) }
 function evilFollowup() { return pick(evilFollowups) }
 
+// Untrusted agent/CLI text must never reach a QML Text as AutoText or
+// MarkdownText (marketplace review lesson: rich text can fetch URLs).
+// Strip markup metacharacters and controls; cap length as a second layer
+// on top of the producer-side helper ceilings.
+function clean(value, max) {
+  var s = String(value === undefined || value === null ? "" : value)
+  s = s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+  s = s.replace(/[<>]/g, "")
+  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+  var cap = max || 65536
+  return s.length > cap ? s.slice(0, cap) : s
+}
+
 function errorLine(exitCode, stderrText) {
   // Agents log ANSI-colored banners to stderr; keep bubbles plain.
-  var detail = String(stderrText || "")
-    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
-    .trim()
-  if (detail.length > 300) detail = detail.slice(0, 300) + "…"
+  var detail = clean(stderrText, 300).trim()
   var line = "Clunk. My brain call failed (exit " + exitCode + ")."
   if (detail !== "") line += "\n\n" + detail
   return line
@@ -81,6 +91,9 @@ function errorLine(exitCode, stderrText) {
 
 var timeoutLine =
   "Clunk. That one took too long, so I pulled the plug. Try asking again?"
+
+var overflowLine =
+  "Clunk. That reply was far too long, so I pulled the plug. Try asking again?"
 
 var missingAgentLine =
   "Clunk. I couldn't start my brain. Is the default agent installed? " +
