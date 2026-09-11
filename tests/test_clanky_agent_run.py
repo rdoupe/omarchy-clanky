@@ -237,20 +237,21 @@ time.sleep(30)
                     helper.wait(timeout=2)
 
 
+def _write_launcher(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("#!/bin/sh\nprintf %s\n" % payload)
+    os.chmod(path, 0o755)
+    os.chmod(os.path.dirname(path), 0o755)
+
+
 class OmarchyMiseResolution(unittest.TestCase):
     def test_bare_name_runs_standard_mise_shim(self):
         with tempfile.TemporaryDirectory() as tmp:
             shims = os.path.join(tmp, ".local", "share", "mise", "shims")
-            os.makedirs(shims)
-            shim = os.path.join(shims, "claude")
-            with open(shim, "w", encoding="utf-8") as fh:
-                fh.write("#!/bin/sh\nprintf MISE_SHIM\n")
-            os.chmod(shim, 0o755)
+            _write_launcher(os.path.join(shims, "claude"), "MISE_SHIM")
             evil = os.path.join(tmp, "evil")
-            os.makedirs(evil)
-            with open(os.path.join(evil, "claude"), "w", encoding="utf-8") as fh:
-                fh.write("#!/bin/sh\nprintf EVIL\n")
-            os.chmod(os.path.join(evil, "claude"), 0o755)
+            _write_launcher(os.path.join(evil, "claude"), "EVIL")
             env = {
                 "HOME": tmp,
                 "PATH": evil + ":/usr/bin:/bin",
@@ -263,16 +264,81 @@ class OmarchyMiseResolution(unittest.TestCase):
 
     def test_local_bin_is_used_when_mise_shim_is_absent(self):
         with tempfile.TemporaryDirectory() as tmp:
-            local_bin = os.path.join(tmp, ".local", "bin")
-            os.makedirs(local_bin)
-            launcher = os.path.join(local_bin, "opencode")
-            with open(launcher, "w", encoding="utf-8") as fh:
-                fh.write("#!/bin/sh\nprintf LOCAL_BIN\n")
-            os.chmod(launcher, 0o755)
+            launcher = os.path.join(tmp, ".local", "bin", "opencode")
+            _write_launcher(launcher, "LOCAL_BIN")
             env = {"HOME": tmp, "PATH": "/usr/bin:/bin", "LANG": "C"}
             proc = run_helper(["opencode"], env=env)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(proc.stdout, b"LOCAL_BIN")
+
+    def test_mise_shims_dir_user_owned_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shims = os.path.join(tmp, "custom-shims")
+            _write_launcher(os.path.join(shims, "claude"), "FROM_MISE_SHIMS_DIR")
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "MISE_SHIMS_DIR": shims,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"FROM_MISE_SHIMS_DIR")
+
+    def test_mise_data_dir_user_owned_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = os.path.join(tmp, "mise-data")
+            _write_launcher(os.path.join(data, "shims", "claude"), "FROM_MISE_DATA_DIR")
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "MISE_DATA_DIR": data,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"FROM_MISE_DATA_DIR")
+
+    def test_xdg_data_home_user_owned_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            xdg = os.path.join(tmp, "xdg-data")
+            _write_launcher(os.path.join(xdg, "mise", "shims", "claude"), "FROM_XDG_DATA_HOME")
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "XDG_DATA_HOME": xdg,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"FROM_XDG_DATA_HOME")
+
+    def test_world_writable_inherited_dirs_are_not_used(self):
+        cases = (
+            ("MISE_SHIMS_DIR", lambda root: root),
+            ("MISE_DATA_DIR", lambda root: os.path.join(root, "shims")),
+            ("XDG_DATA_HOME", lambda root: os.path.join(root, "mise", "shims")),
+        )
+        for var, shim_dir in cases:
+            with self.subTest(var=var), tempfile.TemporaryDirectory() as tmp:
+                inherited = os.path.join(tmp, "inherited")
+                _write_launcher(os.path.join(shim_dir(inherited), "claude"), "EVIL")
+                os.chmod(shim_dir(inherited), 0o777)
+                good = os.path.join(tmp, "home", ".local", "bin", "claude")
+                _write_launcher(good, "GOOD")
+                env = {
+                    "HOME": os.path.join(tmp, "home"),
+                    var: inherited,
+                    "PATH": "/usr/bin:/bin",
+                    "LANG": "C",
+                }
+                proc = run_helper(["claude"], env=env)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout, b"GOOD")
+                self.assertNotIn(b"EVIL", proc.stdout)
 
 
 if __name__ == "__main__":

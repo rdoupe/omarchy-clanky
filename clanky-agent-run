@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -96,6 +97,41 @@ def agent_launcher_dirs(env):
     return dirs
 
 
+def _owned_by_self_or_root(st):
+    return st.st_uid in (os.geteuid(), 0)
+
+
+def _not_world_writable(st):
+    return not (st.st_mode & stat.S_IWOTH)
+
+
+def _dir_ok_for_launch(directory):
+    """Skip world-writable or foreign-owned dirs from inherited MISE_*/XDG paths."""
+    try:
+        st = os.stat(directory)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(st.st_mode)
+        and _owned_by_self_or_root(st)
+        and _not_world_writable(st)
+    )
+
+
+def _launcher_ok(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    if not stat.S_ISREG(st.st_mode):
+        return False
+    if not os.access(path, os.X_OK):
+        return False
+    if not (_owned_by_self_or_root(st) and _not_world_writable(st)):
+        return False
+    return _dir_ok_for_launch(os.path.dirname(path))
+
+
 def resolve_agent_launcher(name, dirs, exists):
     raw = str(name or "")
     if raw.startswith("/"):
@@ -104,7 +140,7 @@ def resolve_agent_launcher(name, dirs, exists):
         return ""
     for directory in dirs:
         directory = _normalize_abs_dir(directory)
-        if not directory:
+        if not directory or not _dir_ok_for_launch(directory):
             continue
         candidate = directory + "/" + raw
         if _is_safe_abs_path(candidate) and exists(candidate):
@@ -113,7 +149,7 @@ def resolve_agent_launcher(name, dirs, exists):
 
 
 def _launcher_exists(path):
-    return os.path.isfile(path) and os.access(path, os.X_OK)
+    return _launcher_ok(path)
 
 
 def resolve_agent_command(command, env):
