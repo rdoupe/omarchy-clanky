@@ -30,11 +30,108 @@ DEFAULT_STDERR_BYTES = 16 * 1024
 EXIT_OVERFLOW = 125
 KILL_GRACE_S = 0.2
 REAP_DEADLINE_S = 1.0
+TRUSTED_PATH_DIRS = (
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+)
+FALLBACK_PATH = "/usr/bin:/bin"
 
 _child = None
 _child_pgid = None
 _overflow = threading.Event()
 _stopping = threading.Event()
+
+
+def _is_safe_abs_path(path):
+    p = str(path or "")
+    if len(p) < 2 or p[0] != "/":
+        return False
+    if "/./" in p or "/../" in p:
+        return False
+    if p.endswith("/.") or p.endswith("/.."):
+        return False
+    return True
+
+
+def _normalize_abs_dir(path):
+    p = str(path or "")
+    if p.endswith("/"):
+        p = p[:-1]
+    return p if _is_safe_abs_path(p) else ""
+
+
+def _is_safe_bare_name(name):
+    n = str(name or "")
+    return n not in ("", ".", "..") and "/" not in n
+
+
+def agent_launcher_dirs(env):
+    """System bins, then Omarchy mise shims and ~/.local/bin. Not inherited PATH."""
+    dirs = []
+    seen = set()
+
+    def add(path):
+        p = _normalize_abs_dir(path)
+        if p and p not in seen:
+            seen.add(p)
+            dirs.append(p)
+
+    for trusted in TRUSTED_PATH_DIRS:
+        add(trusted)
+    add(env.get("MISE_SHIMS_DIR", ""))
+    data_dir = _normalize_abs_dir(env.get("MISE_DATA_DIR", ""))
+    if data_dir:
+        add(data_dir + "/shims")
+    data_home = _normalize_abs_dir(env.get("XDG_DATA_HOME", ""))
+    home = _normalize_abs_dir(env.get("HOME", ""))
+    if not data_home and home:
+        data_home = home + "/.local/share"
+    if data_home:
+        add(data_home + "/mise/shims")
+    if home:
+        add(home + "/.local/bin")
+    return dirs
+
+
+def resolve_agent_launcher(name, dirs, exists):
+    raw = str(name or "")
+    if raw.startswith("/"):
+        return raw if _is_safe_abs_path(raw) else ""
+    if not _is_safe_bare_name(raw):
+        return ""
+    for directory in dirs:
+        directory = _normalize_abs_dir(directory)
+        if not directory:
+            continue
+        candidate = directory + "/" + raw
+        if _is_safe_abs_path(candidate) and exists(candidate):
+            return candidate
+    return ""
+
+
+def _launcher_exists(path):
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def resolve_agent_command(command, env):
+    if not command:
+        return [], env.get("PATH") or FALLBACK_PATH
+    resolved = resolve_agent_launcher(command[0], agent_launcher_dirs(env), _launcher_exists)
+    if not resolved:
+        return list(command), env.get("PATH") or FALLBACK_PATH
+    path = env.get("PATH") or FALLBACK_PATH
+    directory = os.path.dirname(resolved)
+    known = set(agent_launcher_dirs(env))
+    if (
+        directory in known
+        and directory not in TRUSTED_PATH_DIRS
+        and directory not in path.split(":")
+    ):
+        path = directory + ":" + path
+    return [resolved] + list(command[1:]), path
 
 
 def _parse_args(argv):
@@ -271,12 +368,17 @@ def main(argv=None):
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGHUP, _on_signal)
 
+    child_env = os.environ.copy()
+    command, child_path = resolve_agent_command(command, child_env)
+    child_env["PATH"] = child_path
+
     try:
         _child = subprocess.Popen(
             command,
             stdin=None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=child_env,
             start_new_session=True,
             preexec_fn=_child_preexec,
         )

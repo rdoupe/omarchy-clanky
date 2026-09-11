@@ -201,6 +201,9 @@ you):
   on stdin. The wrapper starts in a sanitized environment (allowlisted
   `HOME`/locale/XDG/proxy vars, a trusted-dir `PATH`, and only the
   selected agent's provider credentials; no `LD_*` or `PYTHONPATH`).
+  Bare agent names resolve to a validated absolute launcher from
+  trusted system bins, the Omarchy mise shim directory, or `~/.local/bin`
+  — not from inherited writable `PATH` entries.
   The helper caps stdout at 64 KiB and stderr at 16 KiB and kills the
   agent process tree if either ceiling is crossed, or if you cancel,
   dismiss, or quit mid-ask. Replies are shown as plain text. The agent

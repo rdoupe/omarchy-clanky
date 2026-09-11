@@ -16,7 +16,7 @@ HELPER = os.path.abspath(
 EXIT_OVERFLOW = 125
 
 
-def run_helper(command, stdout_bytes=64, stderr_bytes=64, stdin=None, timeout=5):
+def run_helper(command, stdout_bytes=64, stderr_bytes=64, stdin=None, timeout=5, env=None):
     argv = [
         sys.executable,
         HELPER,
@@ -31,6 +31,7 @@ def run_helper(command, stdout_bytes=64, stderr_bytes=64, stdin=None, timeout=5)
         input=stdin,
         capture_output=True,
         timeout=timeout,
+        env=env,
     )
 
 
@@ -234,6 +235,44 @@ time.sleep(30)
                 if helper.poll() is None:
                     helper.kill()
                     helper.wait(timeout=2)
+
+
+class OmarchyMiseResolution(unittest.TestCase):
+    def test_bare_name_runs_standard_mise_shim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shims = os.path.join(tmp, ".local", "share", "mise", "shims")
+            os.makedirs(shims)
+            shim = os.path.join(shims, "claude")
+            with open(shim, "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\nprintf MISE_SHIM\n")
+            os.chmod(shim, 0o755)
+            evil = os.path.join(tmp, "evil")
+            os.makedirs(evil)
+            with open(os.path.join(evil, "claude"), "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\nprintf EVIL\n")
+            os.chmod(os.path.join(evil, "claude"), 0o755)
+            env = {
+                "HOME": tmp,
+                "PATH": evil + ":/usr/bin:/bin",
+                "LANG": "C",
+            }
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"MISE_SHIM")
+            self.assertNotIn(b"EVIL", proc.stdout)
+
+    def test_local_bin_is_used_when_mise_shim_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local_bin = os.path.join(tmp, ".local", "bin")
+            os.makedirs(local_bin)
+            launcher = os.path.join(local_bin, "opencode")
+            with open(launcher, "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\nprintf LOCAL_BIN\n")
+            os.chmod(launcher, 0o755)
+            env = {"HOME": tmp, "PATH": "/usr/bin:/bin", "LANG": "C"}
+            proc = run_helper(["opencode"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"LOCAL_BIN")
 
 
 if __name__ == "__main__":

@@ -391,6 +391,101 @@ class TrustedPathAllowlist(unittest.TestCase):
         self.assertNotIn("out.push(p)", qml)
 
 
+def agent_launcher_dirs(home, mise_data_dir=None, mise_shims_dir=None, xdg_data_home=None):
+    dirs = []
+    seen = set()
+
+    def add(path):
+        p = str(path or "")
+        if p.endswith("/"):
+            p = p[:-1]
+        if not p.startswith("/") or "/./" in p or "/../" in p:
+            return
+        if p.endswith("/.") or p.endswith("/.."):
+            return
+        if p in seen:
+            return
+        seen.add(p)
+        dirs.append(p)
+
+    for trusted in TRUSTED_PATH_DIRS:
+        add(trusted)
+    add(mise_shims_dir)
+    if mise_data_dir:
+        add(str(mise_data_dir).rstrip("/") + "/shims")
+    data_home = xdg_data_home
+    if not data_home and home:
+        data_home = str(home).rstrip("/") + "/.local/share"
+    if data_home:
+        add(str(data_home).rstrip("/") + "/mise/shims")
+    if home:
+        add(str(home).rstrip("/") + "/.local/bin")
+    return dirs
+
+
+def resolve_agent_launcher(name, dirs, exists):
+    raw = str(name or "")
+    if raw.startswith("/"):
+        if "/./" in raw or "/../" in raw or not raw.startswith("/"):
+            return ""
+        return raw
+    if raw in ("", ".", "..") or "/" in raw:
+        return ""
+    for directory in dirs:
+        candidate = directory.rstrip("/") + "/" + raw
+        if exists(candidate):
+            return candidate
+    return ""
+
+
+class OmarchyAgentResolution(unittest.TestCase):
+    def test_search_dirs_include_standard_mise_and_local_bin(self):
+        dirs = agent_launcher_dirs("/home/user")
+        self.assertEqual(dirs[0], "/usr/local/bin")
+        self.assertIn("/home/user/.local/share/mise/shims", dirs)
+        self.assertIn("/home/user/.local/bin", dirs)
+        self.assertLess(
+            dirs.index("/home/user/.local/share/mise/shims"),
+            dirs.index("/home/user/.local/bin"),
+        )
+
+    def test_resolves_omarchy_mise_launcher_location(self):
+        dirs = agent_launcher_dirs("/home/user")
+        existing = {"/home/user/.local/share/mise/shims/claude"}
+        self.assertEqual(
+            resolve_agent_launcher("claude", dirs, existing.__contains__),
+            "/home/user/.local/share/mise/shims/claude",
+        )
+
+    def test_does_not_consult_inherited_writable_path_entries(self):
+        dirs = agent_launcher_dirs("/home/user")
+        existing = {
+            "/tmp/evil/claude",
+            "/home/user/.local/share/mise/shims/claude",
+        }
+        self.assertEqual(
+            resolve_agent_launcher("claude", dirs, existing.__contains__),
+            "/home/user/.local/share/mise/shims/claude",
+        )
+        self.assertNotIn("/tmp/evil", dirs)
+
+    def test_rejects_traversal_and_relative_names(self):
+        dirs = agent_launcher_dirs("/home/user")
+        self.assertEqual(resolve_agent_launcher("../claude", dirs, lambda _p: True), "")
+        self.assertEqual(resolve_agent_launcher("claude/../evil", dirs, lambda _p: True), "")
+        self.assertEqual(resolve_agent_launcher("/tmp/../usr/bin/claude", dirs, lambda _p: True), "")
+
+    def test_qml_and_model_wire_resolution(self):
+        qml = read(SERVICE)
+        src = read(MODEL)
+        self.assertIn("ClankyModel.agentLauncherDirs(", qml)
+        self.assertIn("ClankyModel.resolveAgentCommand(inv.command, launchDirs)", qml)
+        self.assertIn("function agentLauncherDirs(home, miseDataDir, miseShimsDir, xdgDataHome)", src)
+        self.assertIn("function resolveAgentLauncher(name, dirs, exists)", src)
+        self.assertIn('dataHome + "/mise/shims"', src)
+        self.assertIn('localHome + "/.local/bin"', src)
+
+
 class ScopedAgentCredentials(unittest.TestCase):
     def test_custom_command_gets_no_credentials(self):
         self.assertEqual(agent_credential_names("claude", ["my-agent", "--ask"]), [])

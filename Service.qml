@@ -237,7 +237,9 @@ Item {
   // Allowlist only. clearEnvironment drops LD_PRELOAD, PYTHONPATH, and every
   // other unlisted hijack vector before setpriv/python3 start. HOME/XDG stay
   // so the selected agent can read its config. PATH is a trusted-dir
-  // allowlist (not inherited home/tmp entries). Provider credentials are
+  // allowlist (not inherited home/tmp entries). Bare agent names are
+  // resolved to an absolute launcher (system bins, then the Omarchy mise
+  // shim farm / ~/.local/bin) before exec. Provider credentials are
   // scoped to that agent; a custom command gets none.
   function agentLaunchEnvironment() {
     var env = {
@@ -258,7 +260,7 @@ Item {
       "http_proxy", "https_proxy", "no_proxy", "all_proxy",
       "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
       "NODE_EXTRA_CA_CERTS",
-      "MISE_DATA_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_GLOBAL_CONFIG_FILE"
+      "MISE_DATA_DIR", "MISE_SHIMS_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_GLOBAL_CONFIG_FILE"
     ]
     for (var i = 0; i < pass.length; i++) {
       var value = Quickshell.env(pass[i])
@@ -292,9 +294,17 @@ Item {
     }
     var inv = agentInvocation(prompt)
     pendingPrompt = String(inv.stdin || "")
+    var launchDirs = ClankyModel.agentLauncherDirs(
+      Quickshell.env("HOME"),
+      Quickshell.env("MISE_DATA_DIR"),
+      Quickshell.env("MISE_SHIMS_DIR"),
+      Quickshell.env("XDG_DATA_HOME")
+    )
+    var agentCmd = ClankyModel.resolveAgentCommand(inv.command, launchDirs)
     // Trusted setpriv + isolated python3 + helper + -- + agent argv.
     // The helper, not QML, is the byte-ceiling; collectors can only see
-    // what it forwards. The user prompt is not in this argv.
+    // what it forwards. The user prompt is not in this argv. Bare names
+    // are resolved to a validated absolute launcher inside the helper.
     var argv = [
       root.setprivBin, "--pdeathsig", "TERM",
       root.python3Bin, "-I", root.agentHelper,
@@ -302,7 +312,7 @@ Item {
       "--stderr-bytes", String(root.agentStderrCeiling),
       "--"
     ]
-    for (var i = 0; i < inv.command.length; i++) argv.push(inv.command[i])
+    for (var i = 0; i < agentCmd.length; i++) argv.push(agentCmd[i])
     agentProc.command = argv
     agentProc.environment = root.agentLaunchEnvironment()
     // Always write the prompt on stdin and close the pipe so the agent

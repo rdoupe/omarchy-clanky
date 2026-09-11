@@ -137,6 +137,82 @@ function sanitizedPath(rawPath) {
   return out.length > 0 ? out.join(":") : fallbackPath
 }
 
+function isSafeAbsPath(path) {
+  var p = String(path || "")
+  if (p.length < 2 || p.charAt(0) !== "/") return false
+  if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) return false
+  if (p.slice(-2) === "/." || p.slice(-3) === "/..") return false
+  return true
+}
+
+function isSafeBareName(name) {
+  var n = String(name || "")
+  if (n === "" || n === "." || n === "..") return false
+  if (n.indexOf("/") >= 0) return false
+  return true
+}
+
+function normalizeAbsDir(path) {
+  var p = String(path || "")
+  if (p.slice(-1) === "/") p = p.slice(0, -1)
+  return isSafeAbsPath(p) ? p : ""
+}
+
+// Trusted system bins first, then the Omarchy mise shim farm and
+// ~/.local/bin. Inherited PATH entries are not consulted — a writable
+// /tmp or random home dir on PATH cannot shadow the launcher.
+function agentLauncherDirs(home, miseDataDir, miseShimsDir, xdgDataHome) {
+  var dirs = []
+  var seen = {}
+  function add(path) {
+    var p = normalizeAbsDir(path)
+    if (p === "" || seen[p]) return
+    seen[p] = true
+    dirs.push(p)
+  }
+  for (var i = 0; i < trustedPathDirs.length; i++) add(trustedPathDirs[i])
+  add(miseShimsDir)
+  var dataDir = normalizeAbsDir(miseDataDir)
+  if (dataDir !== "") add(dataDir + "/shims")
+  var dataHome = normalizeAbsDir(xdgDataHome)
+  if (dataHome === "") {
+    var homeDir = normalizeAbsDir(home)
+    if (homeDir !== "") dataHome = homeDir + "/.local/share"
+  }
+  if (dataHome !== "") add(dataHome + "/mise/shims")
+  var localHome = normalizeAbsDir(home)
+  if (localHome !== "") add(localHome + "/.local/bin")
+  return dirs
+}
+
+function resolveAgentLauncher(name, dirs, exists) {
+  var raw = String(name || "")
+  if (raw.indexOf("/") === 0) return isSafeAbsPath(raw) ? raw : ""
+  if (!isSafeBareName(raw)) return ""
+  // Bare names need an exists probe. Without one, leave resolution to
+  // clanky-agent-run so we do not pin a missing /usr/bin/<agent>.
+  if (typeof exists !== "function") return ""
+  var list = dirs || []
+  for (var i = 0; i < list.length; i++) {
+    var dir = normalizeAbsDir(list[i])
+    if (dir === "") continue
+    var candidate = dir + "/" + raw
+    if (!isSafeAbsPath(candidate)) continue
+    if (!exists(candidate)) continue
+    return candidate
+  }
+  return ""
+}
+
+function resolveAgentCommand(command, dirs, exists) {
+  if (!command || command.length === 0) return command
+  var resolved = resolveAgentLauncher(command[0], dirs, exists)
+  if (resolved === "") return command
+  var out = [resolved]
+  for (var i = 1; i < command.length; i++) out.push(command[i])
+  return out
+}
+
 // Provider tokens are scoped to the selected default agent. A shell.json
 // `command` override is untrusted for this purpose and gets no credentials;
 // those agents should read keys from their own config under HOME/XDG.
