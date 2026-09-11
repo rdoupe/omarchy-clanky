@@ -18,11 +18,32 @@ README = os.path.join(ROOT, "README.md")
 SETPRIV = "/usr/bin/setpriv"
 PYTHON3 = "/usr/bin/python3"
 SECRET = "UNIQUE_PROMPT_TOKEN_7f3a9c"
+HELPER_SUFFIX = "/clanky-agent-run"
 
 
 def read(path):
     with open(path, "r", encoding="utf-8") as fh:
         return fh.read()
+
+
+def agent_helper_from_resolved_url(raw):
+    """Mirror Service.qml agentHelper: strip the file:// prefix from Qt.resolvedUrl."""
+    raw = str(raw or "")
+    if raw.startswith("file://"):
+        raw = raw[7:]
+    return raw
+
+
+def trusted_helper(path):
+    """Mirror Service.qml trustedHelper, including the 17-char suffix check."""
+    p = str(path or "")
+    if len(p) < 2 or p[0] != "/":
+        return False
+    if "/./" in p or "/../" in p:
+        return False
+    if p.endswith("/.") or p.endswith("/.."):
+        return False
+    return p[-17:] == HELPER_SUFFIX
 
 
 def production_argv(command, stdout_bytes=64, stderr_bytes=64):
@@ -170,6 +191,36 @@ class TrustedLaunch(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 125)
         self.assertEqual(proc.stdout, b"x" * 64)
+
+
+class TrustedHelperPath(unittest.TestCase):
+    def test_qml_suffix_length_matches_helper_name(self):
+        qml = read(SERVICE)
+        self.assertEqual(len(HELPER_SUFFIX), 17)
+        self.assertIn('p.slice(-17) === "/clanky-agent-run"', qml)
+        self.assertNotIn("p.slice(-16)", qml)
+
+    def test_trusted_helper_accepts_agent_helper(self):
+        # agentHelper is Qt.resolvedUrl("clanky-agent-run") with file:// stripped.
+        self.assertTrue(os.path.isabs(HELPER))
+        self.assertTrue(HELPER.endswith(HELPER_SUFFIX))
+        # Off-by-one: last 16 chars drop the leading slash and never match.
+        self.assertEqual(HELPER[-16:], "clanky-agent-run")
+        self.assertNotEqual(HELPER[-16:], HELPER_SUFFIX)
+        self.assertEqual(HELPER[-17:], HELPER_SUFFIX)
+        self.assertTrue(trusted_helper(HELPER))
+        self.assertTrue(trusted_helper(agent_helper_from_resolved_url("file://" + HELPER)))
+
+    def test_trusted_helper_related_paths(self):
+        plugin = "/home/user/.config/omarchy/plugins/clanky/clanky-agent-run"
+        self.assertTrue(trusted_helper(plugin))
+        self.assertTrue(trusted_helper(agent_helper_from_resolved_url("file://" + plugin)))
+        self.assertFalse(trusted_helper("clanky-agent-run"))
+        self.assertFalse(trusted_helper(""))
+        self.assertFalse(trusted_helper("/tmp/./clanky-agent-run"))
+        self.assertFalse(trusted_helper("/tmp/../clanky-agent-run"))
+        self.assertFalse(trusted_helper("/tmp/clanky-agent-run-extra"))
+        self.assertFalse(trusted_helper("/tmp/clanky-agent-ru"))
 
 
 # Mirrors ClankyModel.agentInvocation for the argv/stdin contract.

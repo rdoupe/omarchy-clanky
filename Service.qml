@@ -227,7 +227,7 @@ Item {
     if (p.length < 2 || p.charAt(0) !== "/") return false
     if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) return false
     if (p.slice(-2) === "/." || p.slice(-3) === "/..") return false
-    return p.slice(-16) === "/clanky-agent-run"
+    return p.slice(-17) === "/clanky-agent-run"
   }
 
   function sanitizedPath() {
