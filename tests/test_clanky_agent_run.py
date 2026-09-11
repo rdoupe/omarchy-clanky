@@ -340,6 +340,24 @@ class OmarchyMiseResolution(unittest.TestCase):
                 self.assertEqual(proc.stdout, b"GOOD")
                 self.assertNotIn(b"EVIL", proc.stdout)
 
+    def test_group_writable_inherited_dirs_are_not_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            inherited = os.path.join(tmp, "group-shims")
+            _write_launcher(os.path.join(inherited, "claude"), "EVIL")
+            os.chmod(inherited, 0o775)
+            good = os.path.join(tmp, "home", ".local", "bin", "claude")
+            _write_launcher(good, "GOOD")
+            env = {
+                "HOME": os.path.join(tmp, "home"),
+                "MISE_SHIMS_DIR": inherited,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"GOOD")
+            self.assertNotIn(b"EVIL", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

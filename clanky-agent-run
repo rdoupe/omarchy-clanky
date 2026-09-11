@@ -101,12 +101,12 @@ def _owned_by_self_or_root(st):
     return st.st_uid in (os.geteuid(), 0)
 
 
-def _not_world_writable(st):
-    return not (st.st_mode & stat.S_IWOTH)
+def _not_writable_by_others(st):
+    return not (st.st_mode & (stat.S_IWGRP | stat.S_IWOTH))
 
 
 def _dir_ok_for_launch(directory):
-    """Skip world-writable or foreign-owned dirs from inherited MISE_*/XDG paths."""
+    """Skip group/world-writable or foreign-owned dirs from inherited MISE_*/XDG paths."""
     try:
         st = os.stat(directory)
     except OSError:
@@ -114,7 +114,7 @@ def _dir_ok_for_launch(directory):
     return (
         stat.S_ISDIR(st.st_mode)
         and _owned_by_self_or_root(st)
-        and _not_world_writable(st)
+        and _not_writable_by_others(st)
     )
 
 
@@ -127,7 +127,7 @@ def _launcher_ok(path):
         return False
     if not os.access(path, os.X_OK):
         return False
-    if not (_owned_by_self_or_root(st) and _not_world_writable(st)):
+    if not (_owned_by_self_or_root(st) and _not_writable_by_others(st)):
         return False
     return _dir_ok_for_launch(os.path.dirname(path))
 
