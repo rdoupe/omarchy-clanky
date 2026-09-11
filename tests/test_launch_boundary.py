@@ -2,6 +2,7 @@
 """Launch-boundary tests: trusted identities, sanitized env, stdin-only prompts."""
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import os
 import re
@@ -37,9 +38,10 @@ def agent_helper_from_resolved_url(raw):
 
 def load_agent_helper():
     """Load clanky-agent-run as a module so launch-permission helpers can be unit-tested."""
-    spec = importlib.util.spec_from_file_location("clanky_agent_run", HELPER)
+    loader = importlib.machinery.SourceFileLoader("clanky_agent_run", HELPER)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    loader.exec_module(mod)
     return mod
 
 
