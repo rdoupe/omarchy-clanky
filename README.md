@@ -19,21 +19,23 @@ mounts a Wayland layer-shell window inside the long-running Quickshell process.
 No Electron, no extra daemon. When the bubble is closed, only the robot's few
 thousand square pixels accept input — clicks everywhere else pass through to
 your windows. Each ask is launched through `clanky-agent-run`, a small helper
-that enforces hard stdout/stderr byte ceilings and tears down the agent
-process tree if a ceiling is hit, so the shell never buffers an arbitrary
-model response. A 180-second timeout remains as a secondary limit.
+started via the distro `/usr/bin/setpriv` and `/usr/bin/python3 -I` identities
+(never ambient PATH) in a sanitized environment. The helper enforces hard
+stdout/stderr byte ceilings and tears down the agent process tree if a ceiling
+is hit, so the shell never buffers an arbitrary model response. A 180-second
+timeout remains as a secondary limit.
 
 Clanky's brain is **the omarchy-wide default coding agent** — the one you
 picked in the installer/firstboot, stored in
 `~/.config/omarchy/defaults/agent` and changed with
 `omarchy default agent <name>`. He watches that file, so switching the
 default re-wires him live. All nine Omarchy agents are mapped to their
-headless one-shot form (claude `-p` with a persona system prompt and the
-question on stdin; opencode `run`, codex `exec`, gemini/copilot/grok `-p`,
-crush `run`, pi/omp positional — those get the persona prepended to the
-prompt). Unset or unknown falls back to claude, and a `command` override in
-`shell.json` always wins. Each ask is a fresh agent run (no conversation
-memory yet).
+headless one-shot form (claude `-p` with a persona system prompt; opencode
+`run`, codex `exec`, gemini, copilot, grok, crush `run`, pi, omp). The
+user prompt is always written to the agent's stdin — never argv — so it
+cannot show up in process listings. Unset or unknown falls back to claude,
+and a `command` override in `shell.json` always wins. Each ask is a fresh
+agent run (no conversation memory yet).
 
 ## Install
 
@@ -192,15 +194,18 @@ Programs it runs (all optional, all already on your system or chosen by
 you):
 
 - **The AI agent**, wrapped by the bundled `clanky-agent-run` helper
-  (`python3` plus stock `setpriv --pdeathsig`): whichever CLI
-  `omarchy default agent` points at (`claude`, `opencode`, `codex`,
-  `gemini`, `copilot`, `grok`, `crush`, `pi`, or `omp`), spawned once per
-  question with your prompt on stdin/argv. The helper caps stdout at
-  64 KiB and stderr at 16 KiB and kills the agent process tree if either
-  ceiling is crossed, or if you cancel, dismiss, or quit mid-ask. Replies
-  are shown as plain text. The agent does its own networking under its
-  own account — Clanky just reads the helper's already-capped stdout. No
-  agent installed? He apologizes in the bubble.
+  (stock `/usr/bin/setpriv --pdeathsig` plus `/usr/bin/python3 -I`, never
+  ambient PATH): whichever CLI `omarchy default agent` points at
+  (`claude`, `opencode`, `codex`, `gemini`, `copilot`, `grok`, `crush`,
+  `pi`, or `omp`), spawned once per question with your prompt exclusively
+  on stdin. The wrapper starts in a sanitized environment (allowlisted
+  `HOME`/`PATH`/locale/XDG/proxy/auth vars; no `LD_*` or `PYTHONPATH`).
+  The helper caps stdout at 64 KiB and stderr at 16 KiB and kills the
+  agent process tree if either ceiling is crossed, or if you cancel,
+  dismiss, or quit mid-ask. Replies are shown as plain text. The agent
+  does its own networking under its own account — Clanky just reads the
+  helper's already-capped stdout. No agent installed? He apologizes in
+  the bubble.
 - **Evil mode options** run `omarchy launch terminal`,
   `omarchy launch browser`, and `omarchy reminder` — stock Omarchy
   commands, only when you click them.

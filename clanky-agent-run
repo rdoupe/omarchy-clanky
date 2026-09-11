@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Run an agent CLI with producer-side stdout/stderr byte ceilings.
 
 Clanky's QML Process uses unbounded StdioCollectors. This helper is the

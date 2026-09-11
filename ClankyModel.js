@@ -98,3 +98,45 @@ var overflowLine =
 var missingAgentLine =
   "Clunk. I couldn't start my brain. Is the default agent installed? " +
   "(Check: omarchy default agent)"
+
+var untrustedLaunchLine =
+  "Clunk. I couldn't start my brain through a trusted launcher."
+
+// Headless argv for the omarchy default agent. The user prompt is never an
+// argument — Clanky always writes it (and, for agents without a system-prompt
+// flag, the persona) to the child's stdin so it cannot appear in
+// /proc/<pid>/cmdline. A shell.json `command` override wins and also takes
+// the prompt on stdin.
+function agentInvocation(defaultAgent, prompt, persona, customCommand) {
+  var question = String(prompt || "")
+  if (Array.isArray(customCommand) && customCommand.length > 0) {
+    var cmd = []
+    for (var i = 0; i < customCommand.length; i++) cmd.push(String(customCommand[i]))
+    return { command: cmd, stdin: question }
+  }
+  var voice = String(persona || "")
+  var combined = voice + "\n\n" + question
+  switch (String(defaultAgent || "")) {
+    case "opencode":
+      return { command: ["opencode", "run"], stdin: combined }
+    case "codex":
+      return { command: ["codex", "exec", "--skip-git-repo-check"], stdin: combined }
+    case "gemini":
+      return { command: ["gemini"], stdin: combined }
+    case "copilot":
+      return { command: ["copilot"], stdin: combined }
+    case "crush":
+      return { command: ["crush", "run"], stdin: combined }
+    case "grok":
+      return { command: ["grok"], stdin: combined }
+    case "pi":
+      return { command: ["pi"], stdin: combined }
+    case "omp":
+      return { command: ["omp"], stdin: combined }
+    default:
+      return {
+        command: ["claude", "-p", "--append-system-prompt", voice],
+        stdin: question
+      }
+  }
+}
