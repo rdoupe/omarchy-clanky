@@ -2,6 +2,7 @@
 """Launch-boundary tests: trusted identities, sanitized env, stdin-only prompts."""
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import stat
@@ -32,6 +33,14 @@ def agent_helper_from_resolved_url(raw):
     if raw.startswith("file://"):
         raw = raw[7:]
     return raw
+
+
+def load_agent_helper():
+    """Load clanky-agent-run as a module so launch-permission helpers can be unit-tested."""
+    spec = importlib.util.spec_from_file_location("clanky_agent_run", HELPER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def trusted_helper(path):
@@ -484,6 +493,38 @@ class OmarchyAgentResolution(unittest.TestCase):
         self.assertIn("function resolveAgentLauncher(name, dirs, exists)", src)
         self.assertIn('dataHome + "/mise/shims"', src)
         self.assertIn('localHome + "/.local/bin"', src)
+
+
+class GroupWritableLaunchRejection(unittest.TestCase):
+    """clanky-agent-run must reject group-writable dirs and launchers, not only S_IWOTH."""
+
+    def test_group_writable_dir_and_launcher_are_rejected(self):
+        helper = load_agent_helper()
+        others_write = stat.S_IWGRP | stat.S_IWOTH
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chmod(tmp, 0o755)
+            self.assertTrue(helper._dir_ok_for_launch(tmp))
+
+            os.chmod(tmp, 0o775)
+            self.assertTrue(os.stat(tmp).st_mode & stat.S_IWGRP)
+            self.assertFalse(os.stat(tmp).st_mode & stat.S_IWOTH)
+            self.assertFalse(helper._not_writable_by_others(os.stat(tmp)))
+            self.assertFalse(helper._dir_ok_for_launch(tmp))
+
+            os.chmod(tmp, 0o755)
+            path = os.path.join(tmp, "claude")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\necho ok\n")
+            os.chmod(path, 0o755)
+            self.assertTrue(helper._launcher_ok(path))
+
+            os.chmod(path, 0o775)
+            st = os.stat(path)
+            self.assertTrue(st.st_mode & stat.S_IWGRP)
+            self.assertFalse(st.st_mode & stat.S_IWOTH)
+            self.assertTrue(st.st_mode & others_write)
+            self.assertFalse(helper._not_writable_by_others(st))
+            self.assertFalse(helper._launcher_ok(path))
 
 
 class ScopedAgentCredentials(unittest.TestCase):
