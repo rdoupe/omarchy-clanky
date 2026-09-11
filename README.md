@@ -199,7 +199,8 @@ you):
   (`claude`, `opencode`, `codex`, `gemini`, `copilot`, `grok`, `crush`,
   `pi`, or `omp`), spawned once per question with your prompt exclusively
   on stdin. The wrapper starts in a sanitized environment (allowlisted
-  `HOME`/`PATH`/locale/XDG/proxy/auth vars; no `LD_*` or `PYTHONPATH`).
+  `HOME`/locale/XDG/proxy vars, a trusted-dir `PATH`, and only the
+  selected agent's provider credentials; no `LD_*` or `PYTHONPATH`).
   The helper caps stdout at 64 KiB and stderr at 16 KiB and kills the
   agent process tree if either ceiling is crossed, or if you cancel,
   dismiss, or quit mid-ask. Replies are shown as plain text. The agent

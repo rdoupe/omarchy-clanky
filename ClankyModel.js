@@ -102,6 +102,64 @@ var missingAgentLine =
 var untrustedLaunchLine =
   "Clunk. I couldn't start my brain through a trusted launcher."
 
+// Child PATH is a fixed trusted allowlist, not the inherited PATH. Relative
+// and traversal entries are dropped, and so is every absolute directory that
+// is not one of these system bins — a writable earlier entry (home, /tmp)
+// must not be able to shadow the selected agent.
+var trustedPathDirs = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+var fallbackPath = "/usr/bin:/bin"
+
+function isTrustedPathDir(path) {
+  var p = String(path || "")
+  if (p === "" || p === "." || p === "..") return false
+  if (p.charAt(0) !== "/") return false
+  if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) return false
+  if (p.slice(-2) === "/." || p.slice(-3) === "/..") return false
+  if (p.slice(-1) === "/") p = p.slice(0, -1)
+  for (var i = 0; i < trustedPathDirs.length; i++) {
+    if (p === trustedPathDirs[i]) return true
+  }
+  return false
+}
+
+function sanitizedPath(rawPath) {
+  var parts = String(rawPath || "").split(":")
+  var out = []
+  var seen = {}
+  for (var i = 0; i < parts.length; i++) {
+    var p = parts[i]
+    if (!isTrustedPathDir(p)) continue
+    if (p.slice(-1) === "/") p = p.slice(0, -1)
+    if (seen[p]) continue
+    seen[p] = true
+    out.push(p)
+  }
+  return out.length > 0 ? out.join(":") : fallbackPath
+}
+
+// Provider tokens are scoped to the selected default agent. A shell.json
+// `command` override is untrusted for this purpose and gets no credentials;
+// those agents should read keys from their own config under HOME/XDG.
+var agentCredentials = {
+  claude: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"],
+  codex: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY", "CODEX_HOME"],
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL"],
+  copilot: ["GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN"],
+  grok: ["XAI_API_KEY", "GROK_API_KEY"],
+  opencode: [],
+  crush: [],
+  pi: [],
+  omp: []
+}
+
+function agentCredentialNames(defaultAgent, customCommand) {
+  if (Array.isArray(customCommand) && customCommand.length > 0) return []
+  var name = String(defaultAgent || "")
+  if (Object.prototype.hasOwnProperty.call(agentCredentials, name))
+    return agentCredentials[name].slice()
+  return agentCredentials.claude.slice()
+}
+
 // Headless argv for the omarchy default agent. The user prompt is never an
 // argument — Clanky always writes it (and, for agents without a system-prompt
 // flag, the persona) to the child's stdin so it cannot appear in

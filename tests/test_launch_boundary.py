@@ -295,5 +295,137 @@ class StdinOnlyPrompts(unittest.TestCase):
             self.assertIn(needle, src)
 
 
+# Mirrors ClankyModel.sanitizedPath / agentCredentialNames.
+TRUSTED_PATH_DIRS = ("/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
+FALLBACK_PATH = "/usr/bin:/bin"
+AGENT_CREDENTIALS = {
+    "claude": [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CONFIG_DIR",
+    ],
+    "codex": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY", "CODEX_HOME"],
+    "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL"],
+    "copilot": ["GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN"],
+    "grok": ["XAI_API_KEY", "GROK_API_KEY"],
+    "opencode": [],
+    "crush": [],
+    "pi": [],
+    "omp": [],
+}
+UNRELATED_CREDENTIALS = (
+    "OPENROUTER_API_KEY",
+    "HF_TOKEN",
+    "TOGETHER_API_KEY",
+    "MISTRAL_API_KEY",
+    "DEEPSEEK_API_KEY",
+)
+
+
+def is_trusted_path_dir(path):
+    p = str(path or "")
+    if p in ("", ".", ".."):
+        return False
+    if not p.startswith("/"):
+        return False
+    if "/./" in p or "/../" in p:
+        return False
+    if p.endswith("/.") or p.endswith("/.."):
+        return False
+    if p.endswith("/"):
+        p = p[:-1]
+    return p in TRUSTED_PATH_DIRS
+
+
+def sanitized_path(raw_path):
+    out = []
+    seen = set()
+    for part in str(raw_path or "").split(":"):
+        if not is_trusted_path_dir(part):
+            continue
+        p = part[:-1] if part.endswith("/") else part
+        if p in seen:
+            continue
+        seen.add(p)
+        out.append(p)
+    return ":".join(out) if out else FALLBACK_PATH
+
+
+def agent_credential_names(default_agent, custom_command=None):
+    if isinstance(custom_command, list) and custom_command:
+        return []
+    name = str(default_agent or "")
+    if name in AGENT_CREDENTIALS:
+        return list(AGENT_CREDENTIALS[name])
+    return list(AGENT_CREDENTIALS["claude"])
+
+
+class TrustedPathAllowlist(unittest.TestCase):
+    def test_drops_relative_and_traversal_entries(self):
+        raw = ".:..:./bin:/usr/bin/./extra:/usr/bin/../sbin:/tmp/../usr/bin:/usr/bin"
+        self.assertEqual(sanitized_path(raw), "/usr/bin")
+
+    def test_drops_untrusted_inherited_absolute_entries(self):
+        raw = "/tmp/evil:/home/user/.local/bin:/usr/bin:/opt/shadow:/bin"
+        self.assertEqual(sanitized_path(raw), "/usr/bin:/bin")
+        self.assertNotIn("/tmp/evil", sanitized_path(raw))
+        self.assertNotIn("/home/user/.local/bin", sanitized_path(raw))
+        self.assertNotIn("/opt/shadow", sanitized_path(raw))
+
+    def test_keeps_trusted_dirs_in_inherited_order(self):
+        raw = "/bin:/usr/local/bin:/usr/bin"
+        self.assertEqual(sanitized_path(raw), "/bin:/usr/local/bin:/usr/bin")
+
+    def test_empty_or_all_untrusted_falls_back(self):
+        self.assertEqual(sanitized_path(""), FALLBACK_PATH)
+        self.assertEqual(sanitized_path("/tmp:/home/user/bin"), FALLBACK_PATH)
+
+    def test_qml_delegates_to_model_allowlist(self):
+        qml = read(SERVICE)
+        src = read(MODEL)
+        self.assertIn("ClankyModel.sanitizedPath(Quickshell.env(\"PATH\"))", qml)
+        self.assertIn('var trustedPathDirs = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]', src)
+        # Must not rebuild PATH by pushing every inherited absolute entry.
+        self.assertNotRegex(qml, r"if \(p\.charAt\(0\) !== \"/\"\) continue")
+        self.assertNotIn("out.push(p)", qml)
+
+
+class ScopedAgentCredentials(unittest.TestCase):
+    def test_custom_command_gets_no_credentials(self):
+        self.assertEqual(agent_credential_names("claude", ["my-agent", "--ask"]), [])
+        self.assertEqual(agent_credential_names("gemini", ["/tmp/custom"]), [])
+
+    def test_default_agents_receive_only_their_keys(self):
+        claude = agent_credential_names("claude")
+        self.assertEqual(claude, AGENT_CREDENTIALS["claude"])
+        self.assertNotIn("OPENAI_API_KEY", claude)
+        self.assertNotIn("GITHUB_TOKEN", claude)
+        self.assertEqual(agent_credential_names("gemini"), AGENT_CREDENTIALS["gemini"])
+        self.assertEqual(agent_credential_names("codex"), AGENT_CREDENTIALS["codex"])
+        self.assertEqual(agent_credential_names("grok"), AGENT_CREDENTIALS["grok"])
+        self.assertEqual(agent_credential_names("copilot"), AGENT_CREDENTIALS["copilot"])
+        self.assertEqual(agent_credential_names(""), AGENT_CREDENTIALS["claude"])
+        self.assertEqual(agent_credential_names("unknown"), AGENT_CREDENTIALS["claude"])
+        for name in ("opencode", "crush", "pi", "omp"):
+            self.assertEqual(agent_credential_names(name), [])
+
+    def test_unrelated_kitchen_sink_keys_are_never_selected(self):
+        for agent in list(AGENT_CREDENTIALS) + ["", "unknown"]:
+            names = agent_credential_names(agent)
+            for cred in UNRELATED_CREDENTIALS:
+                self.assertNotIn(cred, names, agent)
+
+    def test_qml_scopes_credentials_from_the_model(self):
+        qml = read(SERVICE)
+        src = read(MODEL)
+        self.assertIn("ClankyModel.agentCredentialNames(root.defaultAgent, setting(\"command\", null))", qml)
+        self.assertNotIn("OPENROUTER_API_KEY", qml)
+        self.assertNotIn("ANTHROPIC_API_KEY", qml)
+        self.assertIn('claude: ["ANTHROPIC_API_KEY"', src)
+        self.assertIn("function agentCredentialNames(defaultAgent, customCommand)", src)
+        self.assertIn("if (Array.isArray(customCommand) && customCommand.length > 0) return []", src)
+
+
 if __name__ == "__main__":
     unittest.main()

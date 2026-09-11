@@ -231,25 +231,14 @@ Item {
   }
 
   function sanitizedPath() {
-    var raw = String(Quickshell.env("PATH") || "")
-    var parts = raw.split(":")
-    var out = []
-    var seen = {}
-    for (var i = 0; i < parts.length; i++) {
-      var p = parts[i]
-      if (p === "" || p === "." || p === "..") continue
-      if (p.charAt(0) !== "/") continue
-      if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) continue
-      if (seen[p]) continue
-      seen[p] = true
-      out.push(p)
-    }
-    return out.length > 0 ? out.join(":") : "/usr/bin:/bin"
+    return ClankyModel.sanitizedPath(Quickshell.env("PATH"))
   }
 
   // Allowlist only. clearEnvironment drops LD_PRELOAD, PYTHONPATH, and every
-  // other unlisted hijack vector before setpriv/python3 start. HOME/XDG/PATH
-  // stay so the user-chosen agent can still find its config and shims.
+  // other unlisted hijack vector before setpriv/python3 start. HOME/XDG stay
+  // so the selected agent can read its config. PATH is a trusted-dir
+  // allowlist (not inherited home/tmp entries). Provider credentials are
+  // scoped to that agent; a custom command gets none.
   function agentLaunchEnvironment() {
     var env = {
       PATH: root.sanitizedPath(),
@@ -269,19 +258,19 @@ Item {
       "http_proxy", "https_proxy", "no_proxy", "all_proxy",
       "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
       "NODE_EXTRA_CA_CERTS",
-      "MISE_DATA_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_GLOBAL_CONFIG_FILE",
-      "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
-      "OPENAI_API_KEY", "OPENAI_BASE_URL",
-      "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL",
-      "XAI_API_KEY", "GROK_API_KEY", "OPENROUTER_API_KEY",
-      "GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN",
-      "HF_TOKEN", "TOGETHER_API_KEY", "MISTRAL_API_KEY", "DEEPSEEK_API_KEY",
-      "AZURE_OPENAI_API_KEY", "CODEX_HOME", "CLAUDE_CONFIG_DIR"
+      "MISE_DATA_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_GLOBAL_CONFIG_FILE"
     ]
     for (var i = 0; i < pass.length; i++) {
       var value = Quickshell.env(pass[i])
       if (value !== undefined && value !== null && String(value) !== "")
         env[pass[i]] = String(value)
+    }
+    var creds = ClankyModel.agentCredentialNames(root.defaultAgent, setting("command", null))
+    for (var j = 0; j < creds.length; j++) {
+      var cred = creds[j]
+      var credValue = Quickshell.env(cred)
+      if (credValue !== undefined && credValue !== null && String(credValue) !== "")
+        env[cred] = String(credValue)
     }
     return env
   }
