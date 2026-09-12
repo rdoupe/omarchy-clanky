@@ -2,10 +2,12 @@
 """Launch-boundary tests: trusted identities, sanitized env, stdin-only prompts."""
 from __future__ import annotations
 
+import contextlib
 import importlib.machinery
 import importlib.util
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -21,6 +23,19 @@ SETPRIV = "/usr/bin/setpriv"
 PYTHON3 = "/usr/bin/python3"
 SECRET = "UNIQUE_PROMPT_TOKEN_7f3a9c"
 HELPER_SUFFIX = "/clanky-agent-run"
+SAFE_TMP_PARENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".launch-tmp")
+
+
+@contextlib.contextmanager
+def _safe_tempdir():
+    os.makedirs(SAFE_TMP_PARENT, mode=0o755, exist_ok=True)
+    os.chmod(SAFE_TMP_PARENT, 0o755)
+    tmp = tempfile.mkdtemp(dir=SAFE_TMP_PARENT)
+    os.chmod(tmp, 0o755)
+    try:
+        yield tmp
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def read(path):
@@ -503,7 +518,7 @@ class GroupWritableLaunchRejection(unittest.TestCase):
     def test_group_writable_dir_and_launcher_are_rejected(self):
         helper = load_agent_helper()
         others_write = stat.S_IWGRP | stat.S_IWOTH
-        with tempfile.TemporaryDirectory() as tmp:
+        with _safe_tempdir() as tmp:
             os.chmod(tmp, 0o755)
             self.assertTrue(helper._dir_ok_for_launch(tmp))
 
@@ -527,6 +542,21 @@ class GroupWritableLaunchRejection(unittest.TestCase):
             self.assertTrue(st.st_mode & others_write)
             self.assertFalse(helper._not_writable_by_others(st))
             self.assertFalse(helper._launcher_ok(path))
+
+    def test_group_writable_ancestor_and_absolute_path_are_rejected(self):
+        helper = load_agent_helper()
+        with _safe_tempdir() as tmp:
+            ancestor = os.path.join(tmp, "wide")
+            leaf = os.path.join(ancestor, "bin")
+            os.makedirs(leaf)
+            os.chmod(leaf, 0o755)
+            os.chmod(ancestor, 0o775)
+            path = os.path.join(leaf, "claude")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\necho ok\n")
+            os.chmod(path, 0o755)
+            self.assertFalse(helper._launcher_ok(path))
+            self.assertEqual(helper.resolve_agent_launcher(path, [], helper._launcher_ok), "")
 
 
 class ScopedAgentCredentials(unittest.TestCase):

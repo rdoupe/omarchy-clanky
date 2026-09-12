@@ -118,6 +118,35 @@ def _dir_ok_for_launch(directory):
     )
 
 
+def _walk_ancestors(path):
+    current = os.path.dirname(os.path.abspath(path))
+    seen = set()
+    while current and current not in seen:
+        yield current
+        seen.add(current)
+        nxt = os.path.dirname(current)
+        if nxt == current:
+            break
+        current = nxt
+
+
+def _ancestors_ok(path):
+    targets = [path]
+    try:
+        targets.append(os.path.realpath(path))
+    except OSError:
+        pass
+    seen = set()
+    for target in targets:
+        if not target or target in seen:
+            continue
+        seen.add(target)
+        for directory in _walk_ancestors(target):
+            if not _dir_ok_for_launch(directory):
+                return False
+    return True
+
+
 def _launcher_ok(path):
     try:
         st = os.stat(path)
@@ -129,13 +158,15 @@ def _launcher_ok(path):
         return False
     if not (_owned_by_self_or_root(st) and _not_writable_by_others(st)):
         return False
-    return _dir_ok_for_launch(os.path.dirname(path))
+    return _ancestors_ok(path)
 
 
 def resolve_agent_launcher(name, dirs, exists):
     raw = str(name or "")
     if raw.startswith("/"):
-        return raw if _is_safe_abs_path(raw) else ""
+        if _is_safe_abs_path(raw) and _launcher_ok(raw):
+            return raw
+        return ""
     if not _is_safe_bare_name(raw):
         return ""
     for directory in dirs:
@@ -155,8 +186,12 @@ def _launcher_exists(path):
 def resolve_agent_command(command, env):
     if not command:
         return [], env.get("PATH") or FALLBACK_PATH
-    resolved = resolve_agent_launcher(command[0], agent_launcher_dirs(env), _launcher_exists)
+    raw = str(command[0] or "")
+    resolved = resolve_agent_launcher(raw, agent_launcher_dirs(env), _launcher_exists)
     if not resolved:
+        # Rejected absolute launchers must not reach Popen.
+        if raw.startswith("/"):
+            return [], env.get("PATH") or FALLBACK_PATH
         return list(command), env.get("PATH") or FALLBACK_PATH
     path = env.get("PATH") or FALLBACK_PATH
     directory = os.path.dirname(resolved)
@@ -407,6 +442,9 @@ def main(argv=None):
     child_env = os.environ.copy()
     command, child_path = resolve_agent_command(command, child_env)
     child_env["PATH"] = child_path
+    if not command:
+        sys.stderr.write("clanky-agent-run: untrusted or missing command\n")
+        return 127
 
     try:
         _child = subprocess.Popen(
