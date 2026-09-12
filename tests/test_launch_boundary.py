@@ -387,6 +387,10 @@ def agent_credential_names(default_agent, custom_command=None):
     return list(AGENT_CREDENTIALS["claude"])
 
 
+def include_ssh_agent(custom_command=None):
+    return not (isinstance(custom_command, list) and custom_command)
+
+
 class TrustedPathAllowlist(unittest.TestCase):
     def test_drops_relative_and_traversal_entries(self):
         raw = ".:..:./bin:/usr/bin/./extra:/usr/bin/../sbin:/tmp/../usr/bin:/usr/bin"
@@ -593,6 +597,18 @@ class ScopedAgentCredentials(unittest.TestCase):
         self.assertIn('claude: ["ANTHROPIC_API_KEY"', src)
         self.assertIn("function agentCredentialNames(defaultAgent, customCommand)", src)
         self.assertIn("if (Array.isArray(customCommand) && customCommand.length > 0) return []", src)
+
+    def test_custom_command_omits_ssh_agent_vars(self):
+        qml = read(SERVICE)
+        src = read(MODEL)
+        self.assertIn('var sshAgentVars = ["SSH_AUTH_SOCK", "SSH_AGENT_PID"]', src)
+        self.assertIn("function includeSshAgent(customCommand)", src)
+        self.assertIn("ClankyModel.includeSshAgent(setting(\"command\", null))", qml)
+        self.assertNotIn('"SSH_AUTH_SOCK", "SSH_AGENT_PID"', qml)
+        self.assertFalse(include_ssh_agent(["my-agent", "--ask"]))
+        self.assertFalse(include_ssh_agent(["/tmp/custom"]))
+        self.assertTrue(include_ssh_agent(None))
+        self.assertTrue(include_ssh_agent([]))
 
 
 if __name__ == "__main__":

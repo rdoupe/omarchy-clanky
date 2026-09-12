@@ -403,6 +403,33 @@ class OmarchyMiseResolution(unittest.TestCase):
             self.assertEqual(proc.returncode, 127)
             self.assertNotIn(b"ABS", proc.stdout)
 
+    def test_rejected_bare_name_does_not_reach_popen_via_path(self):
+        with _safe_tempdir() as tmp:
+            wide = os.path.join(tmp, "wide-bin")
+            _write_launcher(os.path.join(wide, "claude"), "EVIL")
+            os.chmod(wide, 0o775)
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "PATH": wide + ":/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            os.chmod(env["HOME"], 0o755)
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 127)
+            self.assertNotIn(b"EVIL", proc.stdout)
+
+            import importlib.machinery
+            import importlib.util
+
+            loader = importlib.machinery.SourceFileLoader("clanky_agent_run", HELPER)
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            helper = importlib.util.module_from_spec(spec)
+            loader.exec_module(helper)
+            helper.TRUSTED_PATH_DIRS = helper.TRUSTED_PATH_DIRS + (wide,)
+            cmd, _path = helper.resolve_agent_command(["claude"], env)
+            self.assertEqual(cmd, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -189,10 +189,8 @@ def resolve_agent_command(command, env):
     raw = str(command[0] or "")
     resolved = resolve_agent_launcher(raw, agent_launcher_dirs(env), _launcher_exists)
     if not resolved:
-        # Rejected absolute launchers must not reach Popen.
-        if raw.startswith("/"):
-            return [], env.get("PATH") or FALLBACK_PATH
-        return list(command), env.get("PATH") or FALLBACK_PATH
+        # Bare or absolute: never hand a rejected name to Popen for PATH search.
+        return [], env.get("PATH") or FALLBACK_PATH
     path = env.get("PATH") or FALLBACK_PATH
     directory = os.path.dirname(resolved)
     known = set(agent_launcher_dirs(env))

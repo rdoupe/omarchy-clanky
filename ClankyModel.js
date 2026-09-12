@@ -236,6 +236,12 @@ function agentCredentialNames(defaultAgent, customCommand) {
   return agentCredentials.claude.slice()
 }
 
+var sshAgentVars = ["SSH_AUTH_SOCK", "SSH_AGENT_PID"]
+
+function includeSshAgent(customCommand) {
+  return !(Array.isArray(customCommand) && customCommand.length > 0)
+}
+
 // Headless argv for the omarchy default agent. The user prompt is never an
 // argument — Clanky always writes it (and, for agents without a system-prompt
 // flag, the persona) to the child's stdin so it cannot appear in

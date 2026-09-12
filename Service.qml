@@ -240,7 +240,7 @@ Item {
   // allowlist (not inherited home/tmp entries). Bare agent names are
   // resolved to an absolute launcher (system bins, then the Omarchy mise
   // shim farm / ~/.local/bin) before exec. Provider credentials are
-  // scoped to that agent; a custom command gets none.
+  // scoped to that agent; a custom command gets none, including SSH agent.
   function agentLaunchEnvironment() {
     var env = {
       PATH: root.sanitizedPath(),
@@ -255,13 +255,16 @@ Item {
       "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
       "XDG_RUNTIME_DIR", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS",
       "TMPDIR", "TMP", "TEMP",
-      "SSH_AUTH_SOCK", "SSH_AGENT_PID",
       "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
       "http_proxy", "https_proxy", "no_proxy", "all_proxy",
       "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
       "NODE_EXTRA_CA_CERTS",
       "MISE_DATA_DIR", "MISE_SHIMS_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_GLOBAL_CONFIG_FILE"
     ]
+    if (ClankyModel.includeSshAgent(setting("command", null))) {
+      for (var s = 0; s < ClankyModel.sshAgentVars.length; s++)
+        pass.push(ClankyModel.sshAgentVars[s])
+    }
     for (var i = 0; i < pass.length; i++) {
       var value = Quickshell.env(pass[i])
       if (value !== undefined && value !== null && String(value) !== "")
