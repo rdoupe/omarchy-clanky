@@ -2,7 +2,9 @@
 """Producer-side ceilings and process-tree cleanup for clanky-agent-run."""
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -14,9 +16,23 @@ HELPER = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "clanky-agent-run")
 )
 EXIT_OVERFLOW = 125
+SAFE_TMP_PARENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".launch-tmp")
 
 
-def run_helper(command, stdout_bytes=64, stderr_bytes=64, stdin=None, timeout=5):
+@contextlib.contextmanager
+def _safe_tempdir():
+    """Temp dir whose ancestors are not group/world-writable (/tmp is 1777)."""
+    os.makedirs(SAFE_TMP_PARENT, mode=0o755, exist_ok=True)
+    os.chmod(SAFE_TMP_PARENT, 0o755)
+    tmp = tempfile.mkdtemp(dir=SAFE_TMP_PARENT)
+    os.chmod(tmp, 0o755)
+    try:
+        yield tmp
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def run_helper(command, stdout_bytes=64, stderr_bytes=64, stdin=None, timeout=5, env=None):
     argv = [
         sys.executable,
         HELPER,
@@ -31,6 +47,7 @@ def run_helper(command, stdout_bytes=64, stderr_bytes=64, stdin=None, timeout=5)
         input=stdin,
         capture_output=True,
         timeout=timeout,
+        env=env,
     )
 
 
@@ -234,6 +251,184 @@ time.sleep(30)
                 if helper.poll() is None:
                     helper.kill()
                     helper.wait(timeout=2)
+
+
+def _write_launcher(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("#!/bin/sh\nprintf %s\n" % payload)
+    os.chmod(path, 0o755)
+    os.chmod(os.path.dirname(path), 0o755)
+
+
+class OmarchyMiseResolution(unittest.TestCase):
+    def test_bare_name_runs_standard_mise_shim(self):
+        with _safe_tempdir() as tmp:
+            shims = os.path.join(tmp, ".local", "share", "mise", "shims")
+            _write_launcher(os.path.join(shims, "claude"), "MISE_SHIM")
+            evil = os.path.join(tmp, "evil")
+            _write_launcher(os.path.join(evil, "claude"), "EVIL")
+            env = {
+                "HOME": tmp,
+                "PATH": evil + ":/usr/bin:/bin",
+                "LANG": "C",
+            }
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"MISE_SHIM")
+            self.assertNotIn(b"EVIL", proc.stdout)
+
+    def test_local_bin_is_used_when_mise_shim_is_absent(self):
+        with _safe_tempdir() as tmp:
+            launcher = os.path.join(tmp, ".local", "bin", "opencode")
+            _write_launcher(launcher, "LOCAL_BIN")
+            env = {"HOME": tmp, "PATH": "/usr/bin:/bin", "LANG": "C"}
+            proc = run_helper(["opencode"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"LOCAL_BIN")
+
+    def test_mise_shims_dir_user_owned_is_used(self):
+        with _safe_tempdir() as tmp:
+            shims = os.path.join(tmp, "custom-shims")
+            _write_launcher(os.path.join(shims, "claude"), "FROM_MISE_SHIMS_DIR")
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "MISE_SHIMS_DIR": shims,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"FROM_MISE_SHIMS_DIR")
+
+    def test_mise_data_dir_user_owned_is_used(self):
+        with _safe_tempdir() as tmp:
+            data = os.path.join(tmp, "mise-data")
+            _write_launcher(os.path.join(data, "shims", "claude"), "FROM_MISE_DATA_DIR")
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "MISE_DATA_DIR": data,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"FROM_MISE_DATA_DIR")
+
+    def test_xdg_data_home_user_owned_is_used(self):
+        with _safe_tempdir() as tmp:
+            xdg = os.path.join(tmp, "xdg-data")
+            _write_launcher(os.path.join(xdg, "mise", "shims", "claude"), "FROM_XDG_DATA_HOME")
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "XDG_DATA_HOME": xdg,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"FROM_XDG_DATA_HOME")
+
+    def test_world_writable_inherited_dirs_are_not_used(self):
+        cases = (
+            ("MISE_SHIMS_DIR", lambda root: root),
+            ("MISE_DATA_DIR", lambda root: os.path.join(root, "shims")),
+            ("XDG_DATA_HOME", lambda root: os.path.join(root, "mise", "shims")),
+        )
+        for var, shim_dir in cases:
+            with self.subTest(var=var), _safe_tempdir() as tmp:
+                inherited = os.path.join(tmp, "inherited")
+                _write_launcher(os.path.join(shim_dir(inherited), "claude"), "EVIL")
+                os.chmod(shim_dir(inherited), 0o777)
+                good = os.path.join(tmp, "home", ".local", "bin", "claude")
+                _write_launcher(good, "GOOD")
+                env = {
+                    "HOME": os.path.join(tmp, "home"),
+                    var: inherited,
+                    "PATH": "/usr/bin:/bin",
+                    "LANG": "C",
+                }
+                proc = run_helper(["claude"], env=env)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout, b"GOOD")
+                self.assertNotIn(b"EVIL", proc.stdout)
+
+    def test_group_writable_inherited_dirs_are_not_used(self):
+        with _safe_tempdir() as tmp:
+            inherited = os.path.join(tmp, "group-shims")
+            _write_launcher(os.path.join(inherited, "claude"), "EVIL")
+            os.chmod(inherited, 0o775)
+            good = os.path.join(tmp, "home", ".local", "bin", "claude")
+            _write_launcher(good, "GOOD")
+            env = {
+                "HOME": os.path.join(tmp, "home"),
+                "MISE_SHIMS_DIR": inherited,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"GOOD")
+            self.assertNotIn(b"EVIL", proc.stdout)
+
+    def test_group_writable_ancestor_is_rejected(self):
+        with _safe_tempdir() as tmp:
+            ancestor = os.path.join(tmp, "wide")
+            leaf = os.path.join(ancestor, "shims")
+            _write_launcher(os.path.join(leaf, "claude"), "EVIL")
+            os.chmod(leaf, 0o755)
+            os.chmod(ancestor, 0o775)
+            good = os.path.join(tmp, "home", ".local", "bin", "claude")
+            _write_launcher(good, "GOOD")
+            env = {
+                "HOME": os.path.join(tmp, "home"),
+                "MISE_SHIMS_DIR": leaf,
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+            }
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, b"GOOD")
+            self.assertNotIn(b"EVIL", proc.stdout)
+
+    def test_absolute_untrusted_launcher_does_not_reach_popen(self):
+        with _safe_tempdir() as tmp:
+            launcher = os.path.join(tmp, "agent")
+            _write_launcher(launcher, "ABS")
+            os.chmod(launcher, 0o775)
+            proc = run_helper([launcher], env={"PATH": "/usr/bin:/bin", "LANG": "C", "HOME": tmp})
+            self.assertEqual(proc.returncode, 127)
+            self.assertNotIn(b"ABS", proc.stdout)
+
+    def test_rejected_bare_name_does_not_reach_popen_via_path(self):
+        with _safe_tempdir() as tmp:
+            wide = os.path.join(tmp, "wide-bin")
+            _write_launcher(os.path.join(wide, "claude"), "EVIL")
+            os.chmod(wide, 0o775)
+            env = {
+                "HOME": os.path.join(tmp, "empty-home"),
+                "PATH": wide + ":/usr/bin:/bin",
+                "LANG": "C",
+            }
+            os.makedirs(env["HOME"])
+            os.chmod(env["HOME"], 0o755)
+            proc = run_helper(["claude"], env=env)
+            self.assertEqual(proc.returncode, 127)
+            self.assertNotIn(b"EVIL", proc.stdout)
+
+            import importlib.machinery
+            import importlib.util
+
+            loader = importlib.machinery.SourceFileLoader("clanky_agent_run", HELPER)
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            helper = importlib.util.module_from_spec(spec)
+            loader.exec_module(helper)
+            helper.TRUSTED_PATH_DIRS = helper.TRUSTED_PATH_DIRS + (wide,)
+            cmd, _path = helper.resolve_agent_command(["claude"], env)
+            self.assertEqual(cmd, [])
 
 
 if __name__ == "__main__":

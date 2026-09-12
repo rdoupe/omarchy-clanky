@@ -98,3 +98,185 @@ var overflowLine =
 var missingAgentLine =
   "Clunk. I couldn't start my brain. Is the default agent installed? " +
   "(Check: omarchy default agent)"
+
+var untrustedLaunchLine =
+  "Clunk. I couldn't start my brain through a trusted launcher."
+
+// Child PATH is a fixed trusted allowlist, not the inherited PATH. Relative
+// and traversal entries are dropped, and so is every absolute directory that
+// is not one of these system bins — a writable earlier entry (home, /tmp)
+// must not be able to shadow the selected agent.
+var trustedPathDirs = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+var fallbackPath = "/usr/bin:/bin"
+
+function isTrustedPathDir(path) {
+  var p = String(path || "")
+  if (p === "" || p === "." || p === "..") return false
+  if (p.charAt(0) !== "/") return false
+  if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) return false
+  if (p.slice(-2) === "/." || p.slice(-3) === "/..") return false
+  if (p.slice(-1) === "/") p = p.slice(0, -1)
+  for (var i = 0; i < trustedPathDirs.length; i++) {
+    if (p === trustedPathDirs[i]) return true
+  }
+  return false
+}
+
+function sanitizedPath(rawPath) {
+  var parts = String(rawPath || "").split(":")
+  var out = []
+  var seen = {}
+  for (var i = 0; i < parts.length; i++) {
+    var p = parts[i]
+    if (!isTrustedPathDir(p)) continue
+    if (p.slice(-1) === "/") p = p.slice(0, -1)
+    if (seen[p]) continue
+    seen[p] = true
+    out.push(p)
+  }
+  return out.length > 0 ? out.join(":") : fallbackPath
+}
+
+function isSafeAbsPath(path) {
+  var p = String(path || "")
+  if (p.length < 2 || p.charAt(0) !== "/") return false
+  if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) return false
+  if (p.slice(-2) === "/." || p.slice(-3) === "/..") return false
+  return true
+}
+
+function isSafeBareName(name) {
+  var n = String(name || "")
+  if (n === "" || n === "." || n === "..") return false
+  if (n.indexOf("/") >= 0) return false
+  return true
+}
+
+function normalizeAbsDir(path) {
+  var p = String(path || "")
+  if (p.slice(-1) === "/") p = p.slice(0, -1)
+  return isSafeAbsPath(p) ? p : ""
+}
+
+// Trusted system bins first, then the Omarchy mise shim farm and
+// ~/.local/bin. Inherited PATH entries are not consulted — a writable
+// /tmp or random home dir on PATH cannot shadow the launcher.
+function agentLauncherDirs(home, miseDataDir, miseShimsDir, xdgDataHome) {
+  var dirs = []
+  var seen = {}
+  function add(path) {
+    var p = normalizeAbsDir(path)
+    if (p === "" || seen[p]) return
+    seen[p] = true
+    dirs.push(p)
+  }
+  for (var i = 0; i < trustedPathDirs.length; i++) add(trustedPathDirs[i])
+  add(miseShimsDir)
+  var dataDir = normalizeAbsDir(miseDataDir)
+  if (dataDir !== "") add(dataDir + "/shims")
+  var dataHome = normalizeAbsDir(xdgDataHome)
+  if (dataHome === "") {
+    var homeDir = normalizeAbsDir(home)
+    if (homeDir !== "") dataHome = homeDir + "/.local/share"
+  }
+  if (dataHome !== "") add(dataHome + "/mise/shims")
+  var localHome = normalizeAbsDir(home)
+  if (localHome !== "") add(localHome + "/.local/bin")
+  return dirs
+}
+
+function resolveAgentLauncher(name, dirs, exists) {
+  var raw = String(name || "")
+  if (raw.indexOf("/") === 0) return isSafeAbsPath(raw) ? raw : ""
+  if (!isSafeBareName(raw)) return ""
+  // Bare names need an exists probe. Without one, leave resolution to
+  // clanky-agent-run so we do not pin a missing /usr/bin/<agent>.
+  if (typeof exists !== "function") return ""
+  var list = dirs || []
+  for (var i = 0; i < list.length; i++) {
+    var dir = normalizeAbsDir(list[i])
+    if (dir === "") continue
+    var candidate = dir + "/" + raw
+    if (!isSafeAbsPath(candidate)) continue
+    if (!exists(candidate)) continue
+    return candidate
+  }
+  return ""
+}
+
+function resolveAgentCommand(command, dirs, exists) {
+  if (!command || command.length === 0) return command
+  var resolved = resolveAgentLauncher(command[0], dirs, exists)
+  if (resolved === "") return command
+  var out = [resolved]
+  for (var i = 1; i < command.length; i++) out.push(command[i])
+  return out
+}
+
+// Provider tokens are scoped to the selected default agent. A shell.json
+// `command` override is untrusted for this purpose and gets no credentials;
+// those agents should read keys from their own config under HOME/XDG.
+var agentCredentials = {
+  claude: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"],
+  codex: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY", "CODEX_HOME"],
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL"],
+  copilot: ["GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN"],
+  grok: ["XAI_API_KEY", "GROK_API_KEY"],
+  opencode: [],
+  crush: [],
+  pi: [],
+  omp: []
+}
+
+function agentCredentialNames(defaultAgent, customCommand) {
+  if (Array.isArray(customCommand) && customCommand.length > 0) return []
+  var name = String(defaultAgent || "")
+  if (Object.prototype.hasOwnProperty.call(agentCredentials, name))
+    return agentCredentials[name].slice()
+  return agentCredentials.claude.slice()
+}
+
+var sshAgentVars = ["SSH_AUTH_SOCK", "SSH_AGENT_PID"]
+
+function includeSshAgent(customCommand) {
+  return !(Array.isArray(customCommand) && customCommand.length > 0)
+}
+
+// Headless argv for the omarchy default agent. The user prompt is never an
+// argument — Clanky always writes it (and, for agents without a system-prompt
+// flag, the persona) to the child's stdin so it cannot appear in
+// /proc/<pid>/cmdline. A shell.json `command` override wins and also takes
+// the prompt on stdin.
+function agentInvocation(defaultAgent, prompt, persona, customCommand) {
+  var question = String(prompt || "")
+  if (Array.isArray(customCommand) && customCommand.length > 0) {
+    var cmd = []
+    for (var i = 0; i < customCommand.length; i++) cmd.push(String(customCommand[i]))
+    return { command: cmd, stdin: question }
+  }
+  var voice = String(persona || "")
+  var combined = voice + "\n\n" + question
+  switch (String(defaultAgent || "")) {
+    case "opencode":
+      return { command: ["opencode", "run"], stdin: combined }
+    case "codex":
+      return { command: ["codex", "exec", "--skip-git-repo-check"], stdin: combined }
+    case "gemini":
+      return { command: ["gemini"], stdin: combined }
+    case "copilot":
+      return { command: ["copilot"], stdin: combined }
+    case "crush":
+      return { command: ["crush", "run"], stdin: combined }
+    case "grok":
+      return { command: ["grok"], stdin: combined }
+    case "pi":
+      return { command: ["pi"], stdin: combined }
+    case "omp":
+      return { command: ["omp"], stdin: combined }
+    default:
+      return {
+        command: ["claude", "-p", "--append-system-prompt", voice],
+        stdin: question
+      }
+  }
+}

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Run an agent CLI with producer-side stdout/stderr byte ceilings.
 
 Clanky's QML Process uses unbounded StdioCollectors. This helper is the
@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -30,11 +31,176 @@ DEFAULT_STDERR_BYTES = 16 * 1024
 EXIT_OVERFLOW = 125
 KILL_GRACE_S = 0.2
 REAP_DEADLINE_S = 1.0
+TRUSTED_PATH_DIRS = (
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+)
+FALLBACK_PATH = "/usr/bin:/bin"
 
 _child = None
 _child_pgid = None
 _overflow = threading.Event()
 _stopping = threading.Event()
+
+
+def _is_safe_abs_path(path):
+    p = str(path or "")
+    if len(p) < 2 or p[0] != "/":
+        return False
+    if "/./" in p or "/../" in p:
+        return False
+    if p.endswith("/.") or p.endswith("/.."):
+        return False
+    return True
+
+
+def _normalize_abs_dir(path):
+    p = str(path or "")
+    if p.endswith("/"):
+        p = p[:-1]
+    return p if _is_safe_abs_path(p) else ""
+
+
+def _is_safe_bare_name(name):
+    n = str(name or "")
+    return n not in ("", ".", "..") and "/" not in n
+
+
+def agent_launcher_dirs(env):
+    """System bins, then Omarchy mise shims and ~/.local/bin. Not inherited PATH."""
+    dirs = []
+    seen = set()
+
+    def add(path):
+        p = _normalize_abs_dir(path)
+        if p and p not in seen:
+            seen.add(p)
+            dirs.append(p)
+
+    for trusted in TRUSTED_PATH_DIRS:
+        add(trusted)
+    add(env.get("MISE_SHIMS_DIR", ""))
+    data_dir = _normalize_abs_dir(env.get("MISE_DATA_DIR", ""))
+    if data_dir:
+        add(data_dir + "/shims")
+    data_home = _normalize_abs_dir(env.get("XDG_DATA_HOME", ""))
+    home = _normalize_abs_dir(env.get("HOME", ""))
+    if not data_home and home:
+        data_home = home + "/.local/share"
+    if data_home:
+        add(data_home + "/mise/shims")
+    if home:
+        add(home + "/.local/bin")
+    return dirs
+
+
+def _owned_by_self_or_root(st):
+    return st.st_uid in (os.geteuid(), 0)
+
+
+def _not_writable_by_others(st):
+    return not (st.st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+
+
+def _dir_ok_for_launch(directory):
+    """Skip group/world-writable or foreign-owned dirs from inherited MISE_*/XDG paths."""
+    try:
+        st = os.stat(directory)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(st.st_mode)
+        and _owned_by_self_or_root(st)
+        and _not_writable_by_others(st)
+    )
+
+
+def _walk_ancestors(path):
+    current = os.path.dirname(os.path.abspath(path))
+    seen = set()
+    while current and current not in seen:
+        yield current
+        seen.add(current)
+        nxt = os.path.dirname(current)
+        if nxt == current:
+            break
+        current = nxt
+
+
+def _ancestors_ok(path):
+    targets = [path]
+    try:
+        targets.append(os.path.realpath(path))
+    except OSError:
+        pass
+    seen = set()
+    for target in targets:
+        if not target or target in seen:
+            continue
+        seen.add(target)
+        for directory in _walk_ancestors(target):
+            if not _dir_ok_for_launch(directory):
+                return False
+    return True
+
+
+def _launcher_ok(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    if not stat.S_ISREG(st.st_mode):
+        return False
+    if not os.access(path, os.X_OK):
+        return False
+    if not (_owned_by_self_or_root(st) and _not_writable_by_others(st)):
+        return False
+    return _ancestors_ok(path)
+
+
+def resolve_agent_launcher(name, dirs, exists):
+    raw = str(name or "")
+    if raw.startswith("/"):
+        if _is_safe_abs_path(raw) and _launcher_ok(raw):
+            return raw
+        return ""
+    if not _is_safe_bare_name(raw):
+        return ""
+    for directory in dirs:
+        directory = _normalize_abs_dir(directory)
+        if not directory or not _dir_ok_for_launch(directory):
+            continue
+        candidate = directory + "/" + raw
+        if _is_safe_abs_path(candidate) and exists(candidate):
+            return candidate
+    return ""
+
+
+def _launcher_exists(path):
+    return _launcher_ok(path)
+
+
+def resolve_agent_command(command, env):
+    if not command:
+        return [], env.get("PATH") or FALLBACK_PATH
+    raw = str(command[0] or "")
+    resolved = resolve_agent_launcher(raw, agent_launcher_dirs(env), _launcher_exists)
+    if not resolved:
+        # Bare or absolute: never hand a rejected name to Popen for PATH search.
+        return [], env.get("PATH") or FALLBACK_PATH
+    path = env.get("PATH") or FALLBACK_PATH
+    directory = os.path.dirname(resolved)
+    known = set(agent_launcher_dirs(env))
+    if (
+        directory in known
+        and directory not in TRUSTED_PATH_DIRS
+        and directory not in path.split(":")
+    ):
+        path = directory + ":" + path
+    return [resolved] + list(command[1:]), path
 
 
 def _parse_args(argv):
@@ -271,12 +437,20 @@ def main(argv=None):
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGHUP, _on_signal)
 
+    child_env = os.environ.copy()
+    command, child_path = resolve_agent_command(command, child_env)
+    child_env["PATH"] = child_path
+    if not command:
+        sys.stderr.write("clanky-agent-run: untrusted or missing command\n")
+        return 127
+
     try:
         _child = subprocess.Popen(
             command,
             stdin=None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=child_env,
             start_new_session=True,
             preexec_fn=_child_preexec,
         )

@@ -14,7 +14,7 @@ import "ClankyModel.js" as ClankyModel
 //
 // shell.json settings (top-level plugins[] entry):
 //   { "id": "io.github.rdoupe.clanky",
-//     "command": ["claude", "-p"],     // optional agent override, reads stdin
+//     "command": ["claude", "-p"],     // optional agent override; prompt on stdin
 //     "marginX": 16, "marginY": 16 }   // optional corner offsets
 Item {
   id: root
@@ -168,28 +168,16 @@ Item {
   }
 
   // One-shot invocation for the active agent. A `command` override in
-  // shell.json always wins (prompt on stdin). Otherwise the omarchy default
-  // agent is used with its own headless syntax: claude takes the persona as
-  // a system prompt and reads stdin; the others get persona + prompt as one
-  // argument. Unset or unknown falls back to claude.
+  // shell.json always wins. Every form writes the user prompt to stdin —
+  // never argv — so it cannot leak through /proc/<pid>/cmdline. Unset or
+  // unknown falls back to claude.
   function agentInvocation(prompt) {
-    var custom = setting("command", null)
-    if (Array.isArray(custom) && custom.length > 0)
-      return { command: custom.map(String), stdin: prompt }
-    var persona = root.evil ? ClankyModel.evilPersona : ClankyModel.persona
-    var combined = persona + "\n\n" + prompt
-    switch (root.defaultAgent) {
-    case "opencode": return { command: ["opencode", "run", combined], stdin: null }
-    case "codex": return { command: ["codex", "exec", "--skip-git-repo-check", combined], stdin: null }
-    case "gemini": return { command: ["gemini", "-p", combined], stdin: null }
-    case "copilot": return { command: ["copilot", "-p", combined], stdin: null }
-    case "crush": return { command: ["crush", "run", combined], stdin: null }
-    case "grok": return { command: ["grok", "-p", combined], stdin: null }
-    case "pi": return { command: ["pi", combined], stdin: null }
-    case "omp": return { command: ["omp", combined], stdin: null }
-    default:
-      return { command: ["claude", "-p", "--append-system-prompt", persona], stdin: prompt }
-    }
+    return ClankyModel.agentInvocation(
+      root.defaultAgent,
+      prompt,
+      root.evil ? ClankyModel.evilPersona : ClankyModel.persona,
+      setting("command", null)
+    )
   }
 
   function open() {
@@ -211,9 +199,86 @@ Item {
     if (raw.indexOf("file://") === 0) raw = raw.slice(7)
     return raw
   }
+  // Distro identities for the security wrapper. Never ambient PATH: a
+  // shadowed setpriv/python3 would run before clanky-agent-run can enforce
+  // any boundary. python3 -I ignores PYTHON* and user site-packages.
+  readonly property string setprivBin: "/usr/bin/setpriv"
+  readonly property string python3Bin: "/usr/bin/python3"
   readonly property int agentStdoutCeiling: 65536
   readonly property int agentStderrCeiling: 16384
   readonly property int agentOverflowExit: 125
+
+  function trustedBin(path) {
+    var p = String(path || "")
+    if (p.length < 2 || p.charAt(0) !== "/") return false
+    if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) return false
+    if (p.slice(-2) === "/." || p.slice(-3) === "/..") return false
+    var prefixes = ["/usr/bin/", "/bin/", "/usr/sbin/"]
+    for (var i = 0; i < prefixes.length; i++) {
+      var prefix = prefixes[i]
+      if (p.indexOf(prefix) === 0 && p.length > prefix.length && p.indexOf("/", prefix.length) < 0)
+        return true
+    }
+    return false
+  }
+
+  function trustedHelper(path) {
+    var p = String(path || "")
+    if (p.length < 2 || p.charAt(0) !== "/") return false
+    if (p.indexOf("/./") >= 0 || p.indexOf("/../") >= 0) return false
+    if (p.slice(-2) === "/." || p.slice(-3) === "/..") return false
+    return p.slice(-17) === "/clanky-agent-run"
+  }
+
+  function sanitizedPath() {
+    return ClankyModel.sanitizedPath(Quickshell.env("PATH"))
+  }
+
+  // Allowlist only. clearEnvironment drops LD_PRELOAD, PYTHONPATH, and every
+  // other unlisted hijack vector before setpriv/python3 start. HOME/XDG stay
+  // so the selected agent can read its config. PATH is a trusted-dir
+  // allowlist (not inherited home/tmp entries). Bare agent names are
+  // resolved to an absolute launcher (system bins, then the Omarchy mise
+  // shim farm / ~/.local/bin) before exec. Provider credentials are
+  // scoped to that agent; a custom command gets none, including SSH agent.
+  function agentLaunchEnvironment() {
+    var env = {
+      PATH: root.sanitizedPath(),
+      PYTHONNOUSERSITE: "1",
+      PYTHONSAFEPATH: "1",
+      PYTHONDONTWRITEBYTECODE: "1"
+    }
+    var pass = [
+      "HOME", "USER", "LOGNAME", "USERNAME", "SHELL",
+      "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LANGUAGE", "TZ",
+      "TERM", "COLORTERM", "NO_COLOR", "FORCE_COLOR",
+      "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
+      "XDG_RUNTIME_DIR", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS",
+      "TMPDIR", "TMP", "TEMP",
+      "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+      "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+      "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+      "NODE_EXTRA_CA_CERTS",
+      "MISE_DATA_DIR", "MISE_SHIMS_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_GLOBAL_CONFIG_FILE"
+    ]
+    if (ClankyModel.includeSshAgent(setting("command", null))) {
+      for (var s = 0; s < ClankyModel.sshAgentVars.length; s++)
+        pass.push(ClankyModel.sshAgentVars[s])
+    }
+    for (var i = 0; i < pass.length; i++) {
+      var value = Quickshell.env(pass[i])
+      if (value !== undefined && value !== null && String(value) !== "")
+        env[pass[i]] = String(value)
+    }
+    var creds = ClankyModel.agentCredentialNames(root.defaultAgent, setting("command", null))
+    for (var j = 0; j < creds.length; j++) {
+      var cred = creds[j]
+      var credValue = Quickshell.env(cred)
+      if (credValue !== undefined && credValue !== null && String(credValue) !== "")
+        env[cred] = String(credValue)
+    }
+    return env
+  }
 
   function ask(text) {
     var prompt = String(text || "").trim()
@@ -225,22 +290,36 @@ Item {
     errorText = ""
     reply = ""
     lastPrompt = prompt
+    if (!root.trustedBin(root.setprivBin) || !root.trustedBin(root.python3Bin) || !root.trustedHelper(root.agentHelper)) {
+      thinking = false
+      errorText = ClankyModel.untrustedLaunchLine
+      return
+    }
     var inv = agentInvocation(prompt)
-    pendingPrompt = inv.stdin === null ? "" : inv.stdin
-    // python3 + helper + -- + agent argv. The helper, not QML, is the
-    // byte-ceiling; collectors can only see what it forwards.
+    pendingPrompt = String(inv.stdin || "")
+    var launchDirs = ClankyModel.agentLauncherDirs(
+      Quickshell.env("HOME"),
+      Quickshell.env("MISE_DATA_DIR"),
+      Quickshell.env("MISE_SHIMS_DIR"),
+      Quickshell.env("XDG_DATA_HOME")
+    )
+    var agentCmd = ClankyModel.resolveAgentCommand(inv.command, launchDirs)
+    // Trusted setpriv + isolated python3 + helper + -- + agent argv.
+    // The helper, not QML, is the byte-ceiling; collectors can only see
+    // what it forwards. The user prompt is not in this argv. Bare names
+    // are resolved to a validated absolute launcher inside the helper.
     var argv = [
-      "setpriv", "--pdeathsig", "TERM",
-      "python3", root.agentHelper,
+      root.setprivBin, "--pdeathsig", "TERM",
+      root.python3Bin, "-I", root.agentHelper,
       "--stdout-bytes", String(root.agentStdoutCeiling),
       "--stderr-bytes", String(root.agentStderrCeiling),
       "--"
     ]
-    for (var i = 0; i < inv.command.length; i++) argv.push(inv.command[i])
+    for (var i = 0; i < agentCmd.length; i++) argv.push(agentCmd[i])
     agentProc.command = argv
-    // Always open stdin and close it right after start: agents that take the
-    // prompt as an argument still wait for EOF on a dangling pipe (opencode
-    // does), and the close is what delivers it.
+    agentProc.environment = root.agentLaunchEnvironment()
+    // Always write the prompt on stdin and close the pipe so the agent
+    // sees EOF. Never place the prompt on argv.
     agentProc.stdinEnabled = true
     agentProc.running = true
     timeoutTimer.restart()
@@ -256,6 +335,8 @@ Item {
 
   Process {
     id: agentProc
+    clearEnvironment: true
+    environment: ({})
     // Collectors only ever see helper-capped bytes. clean() is a second
     // ceiling so a future refactor that bypasses the helper still cannot
     // assign an arbitrary string into the long-lived shell.
