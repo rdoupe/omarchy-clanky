@@ -14,10 +14,13 @@ QML_FILES = [
     for name in names
     if name.endswith((".qml", ".js"))
 ]
-BARE_COLOR = re.compile(r"(?<![\w.])Color\s*(\.|$)")
+# A standalone Color used as a value: member access, or ending an expression
+# (`target: Color`, `target: Color;`, `f(Color)`, `[Color]`, `{x: Color}`).
+BARE_COLOR = re.compile(r"(?<![\w.])Color\s*([.;,)\]}]|$)")
 
 
 def code_lines(path):
+    """Yield (line number, code without // comment) for each non-blank line."""
     with open(path, encoding="utf-8") as fh:
         for number, line in enumerate(fh, 1):
             code = line.split("//", 1)[0]
@@ -26,7 +29,17 @@ def code_lines(path):
 
 
 class PaletteQualification(unittest.TestCase):
+    def test_pattern_catches_every_bare_form(self):
+        """The pattern flags every bare form and ignores qualified or unrelated names."""
+        for code in ("color: Color.accent", "target: Color", "target: Color;",
+                     "target: Color ;", "f(Color)", "[Color, x]", "{ c: Color }"):
+            self.assertRegex(code, BARE_COLOR, code)
+        for code in ("color: Commons.Color.accent", "target: Commons.Color;",
+                     "fillColor: x", "strokeColor;", "property color c", "ColorDialog {"):
+            self.assertNotRegex(code, BARE_COLOR, code)
+
     def test_no_bare_color_references(self):
+        """No QML/JS file reads the palette through a bare Color."""
         bare = [
             f"{os.path.relpath(path, ROOT)}:{number}: {code.strip()}"
             for path in QML_FILES
@@ -36,6 +49,7 @@ class PaletteQualification(unittest.TestCase):
         self.assertEqual(bare, [], "bare Color resolves to Qt's type on Qt 6.12")
 
     def test_commons_alias_imported_where_used(self):
+        """Every file that uses Commons.Color imports the Commons alias."""
         for path in QML_FILES:
             with open(path, encoding="utf-8") as fh:
                 text = fh.read()
