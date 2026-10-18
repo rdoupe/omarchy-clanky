@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "ClankyModel.js" as ClankyModel
 
@@ -45,19 +46,19 @@ Item {
   // a full-saturation accent slab clashes on some themes. Washing ~45%
   // accent over the body color keeps the two panels in the same material
   // family with the accent as a tint.
-  readonly property color cBody: tc("lighter_background", Util.alpha(Color.foreground, 0.15))
-  readonly property color cHead: Qt.tint(cBody, Util.alpha(Color.accent, 0.45))
-  readonly property color cBodyBorder: Util.alpha(Color.accent, 0.6)
-  readonly property color cOutline: tc("darker_background", Util.alpha(Color.background, 0.8))
-  readonly property color cEye: tc("bright_foreground", Color.foreground)
-  readonly property color cPupil: tc("dark_background", Color.background)
-  readonly property color cCheek: tc("bright_magenta", tc("magenta", Color.accent))
-  readonly property color cStem: tc("muted", Color.muted)
-  readonly property color cTip: tc("orange", tc("yellow", Color.accent))
-  readonly property color cLightRed: tc("red", Color.urgent)
-  readonly property color cLightYellow: tc("yellow", Color.accent)
-  readonly property color cLightGreen: tc("green", Color.accent)
-  readonly property color cFeet: tc("muted", tc("dark_foreground", Color.muted))
+  readonly property color cBody: tc("lighter_background", Util.alpha(Commons.Color.foreground, 0.15))
+  readonly property color cHead: Qt.tint(cBody, Util.alpha(Commons.Color.accent, 0.45))
+  readonly property color cBodyBorder: Util.alpha(Commons.Color.accent, 0.6)
+  readonly property color cOutline: tc("darker_background", Util.alpha(Commons.Color.background, 0.8))
+  readonly property color cEye: tc("bright_foreground", Commons.Color.foreground)
+  readonly property color cPupil: tc("dark_background", Commons.Color.background)
+  readonly property color cCheek: tc("bright_magenta", tc("magenta", Commons.Color.accent))
+  readonly property color cStem: tc("muted", Commons.Color.muted)
+  readonly property color cTip: tc("orange", tc("yellow", Commons.Color.accent))
+  readonly property color cLightRed: tc("red", Commons.Color.urgent)
+  readonly property color cLightYellow: tc("yellow", Commons.Color.accent)
+  readonly property color cLightGreen: tc("green", Commons.Color.accent)
+  readonly property color cFeet: tc("muted", tc("dark_foreground", Commons.Color.muted))
 
   function loadThemeColors(raw) {
     var out = {}
@@ -83,7 +84,7 @@ Item {
   // push new role colors into the Color singleton over IPC, which the file
   // watch may not see — so re-read the palette whenever the roles move.
   Connections {
-    target: Color
+    target: Commons.Color
     function onAccentChanged() { colorsFile.reload() }
     function onBackgroundChanged() { colorsFile.reload() }
     function onForegroundChanged() { colorsFile.reload() }
@@ -645,7 +646,7 @@ Item {
             textFormat: Text.PlainText
             font.family: "omarchy"
             font.pixelSize: Style.space(22)
-            color: Color.accent
+            color: Commons.Color.accent
 
             SequentialAnimation on scale {
               running: panel.visible
@@ -735,7 +736,7 @@ Item {
         id: bigClip
         s: Style.space(4.2)
         strokeW: 1.3
-        stroke: root.tc("light_foreground", Color.foreground)
+        stroke: root.tc("light_foreground", Commons.Color.foreground)
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
       }
@@ -750,7 +751,7 @@ Item {
           x: clippyRoot.width / 2 + (index === 0 ? -Style.space(16) : Style.space(4))
           y: Style.space(18)
           rotation: index === 0 ? -18 : 18
-          color: root.tc("light_foreground", Color.foreground)
+          color: root.tc("light_foreground", Commons.Color.foreground)
         }
       }
 
@@ -887,10 +888,10 @@ Item {
         width: parent.width
         height: bubbleColumn.implicitHeight + Style.space(28)
         radius: Style.cornerRadius
-        color: Util.alpha(Color.background, 0.97)
+        color: Util.alpha(Commons.Color.background, 0.97)
         border.width: Math.max(1, Style.space(2))
         // Evil mode trades the popup border for legal-pad yellow.
-        border.color: root.evil ? Util.alpha(root.cLightYellow, 0.9) : Color.popups.border
+        border.color: root.evil ? Util.alpha(root.cLightYellow, 0.9) : Commons.Color.popups.border
 
         // Tail pointing at Clanky: a rotated square poking out under the
         // bubble's bottom edge.
@@ -938,7 +939,7 @@ Item {
               wrapMode: Text.Wrap
               font.family: Style.font.family
               font.pixelSize: Style.font.body
-              color: root.errorText !== "" ? Color.urgent : Color.popups.text
+              color: root.errorText !== "" ? Commons.Color.urgent : Commons.Color.popups.text
             }
           }
 
@@ -977,7 +978,7 @@ Item {
                     textFormat: Text.PlainText
                     font.family: Style.font.family
                     font.pixelSize: Style.font.body
-                    color: Color.popups.text
+                    color: Commons.Color.popups.text
                   }
                 }
                 MouseArea {
@@ -1025,9 +1026,9 @@ Item {
         width: Style.space(190)
         height: menuColumn.implicitHeight + Style.space(12)
         radius: Style.cornerRadius
-        color: Util.alpha(Color.background, 0.97)
+        color: Util.alpha(Commons.Color.background, 0.97)
         border.width: Math.max(1, Style.space(2))
-        border.color: Color.popups.border
+        border.color: Commons.Color.popups.border
 
         Column {
           id: menuColumn
@@ -1054,7 +1055,7 @@ Item {
               height: Style.space(28)
               radius: Style.space(6)
               color: menuItemMouse.containsMouse
-                ? Util.alpha(Color.accent, 0.18) : "transparent"
+                ? Util.alpha(Commons.Color.accent, 0.18) : "transparent"
               Text {
                 anchors.verticalCenter: parent.verticalCenter
                 x: Style.space(8)
@@ -1062,7 +1063,7 @@ Item {
                 textFormat: Text.PlainText
                 font.family: Style.font.family
                 font.pixelSize: Style.font.body
-                color: Color.popups.text
+                color: Commons.Color.popups.text
               }
               MouseArea {
                 id: menuItemMouse
